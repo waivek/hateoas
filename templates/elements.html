@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+
+{% block title %}Elements{% endblock %}
+
+{% block body %}
+<main class="font-mono tall">
+    <h1>Elements</h1>
+    <div class="wide">
+        <a href="/">Home</a>
+    </div>
+    <p>Here are some elements:</p>
+    <ul>
+        <li>Element 1</li>
+        <li>Element 2</li>
+        <li>Element 3</li>
+    </ul>
+    <div class="box">
+        <p>Here is a box div.</p>
+        <p>Here is a box div.</p>
+    </div>
+    <div class="tall box">
+        <p>Here is a tall div.</p>
+        <p>Here is a tall div.</p>
+    </div>
+    <div class="wide box">
+        <p>Here is a wide div.</p>
+        <p>Here is a wide div.</p>
+    </div>
+    <div class="box">
+        <form action="/submit" method="post" class="tall">
+            <div>
+                <label for="name">Name:</label>
+                <input type="text" id="name" name="name">
+
+                <label for="email">Email:</label>
+                <input type="email" id="email" name="email" disabled value="preset@disabled.com">
+            </div>
+            <div><button type="submit">Submit</button></div>
+        </form>
+    </div>
+</main>
+{% endblock %}

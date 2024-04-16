@@ -1,4 +1,18 @@
 
-.tall { display: flex; flex-direction: column; }
-.wide { display: flex; flex-direction: row; }
-.box { border: solid 1px black; padding: 0.25rem; }
+.tall { display: flex; flex-direction: column; gap: 0.5rem; }
+.wide { display: flex; flex-direction: row; gap: 0.5rem; }
+.box { border: solid 1px white; padding: 0.5rem; }
+.mono, .font-mono { font-family: monospace; }
+.bold, .font-bold { font-weight: bold; }
+
+body { margin: 0; padding: 0; }
+h1, h2, h3, h4, h5, h6, p, ul, li { margin: 0; }
+
+main { background: #333; color: white; }
+main { min-height: 100vh; padding: 1rem; }
+a { color: cyan; font-weight: bold; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+form button[type="submit"] { background: #444; color: inherit; font-family: monospace; border: solid 1px white; padding: 0.25rem; }
+form input[type="text"] { background: #444; color: inherit; font-family: monospace; border: solid 1px white; padding: 0.25rem; }
+form input[type="text"]:active, form input[type="text"]:focus { outline-color: transparent; }
