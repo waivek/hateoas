@@ -1,0 +1,10 @@
+<style>.active {color: red;}</style>
+<nav class="wide">
+    {% set D = {'home': 'Home', 'elements': 'Elements', 'view_sequences': 'View Sequences'} %}
+    {% set active = request.endpoint %}
+    {% for k, v in D.items() %}
+    <div>
+        <a href="{{ url_for(k) }}" {% if k == active %}class="active"{% endif %}>{{ v }}</a>
+    </div>
+    {% endfor %}
+</nav>
