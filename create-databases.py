@@ -25,15 +25,17 @@ db_paths = []
 for path in paths:
     db_paths.append(f"data/{path[:-4]}.db")
 
+max_label_length = max(len(f"{sql_path} -> {db_path}") for sql_path, db_path in zip(paths, db_paths) )
 for db_path, sql_path in zip(db_paths, paths):
 
-    print(f"{sql_path} -> {db_path}")
+    label = "[" + f"{sql_path} -> {db_path}".ljust(max_label_length) + "]"
+    label = Code.LIGHTBLACK_EX + label
+    print(f"{label} ", end='')
     connection = Connection(db_path)
     table_names = db_table_names(connection)
     table_count = len(table_names)
     if table_count > 0:
-        print(f"... Database {db_path} already has {table_count} tables, skipping...")
-        print(f"... Tables: {table_names}")
+        print(Code.LIGHTRED_EX + f"Database {db_path} already has {table_count} tables, skipping.")
         print()
         continue
 
@@ -41,7 +43,7 @@ for db_path, sql_path in zip(db_paths, paths):
         sql = f.read()
     with connection:
         connection.executescript(sql)
-    print(Code.LIGHTGREEN_EX + f"... Database {db_path} created with tables: {db_table_names(connection)}")
+    print(Code.LIGHTGREEN_EX + f"Database {db_path} created with tables: {db_table_names(connection)}")
     print()
 
 

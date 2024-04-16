@@ -13,6 +13,7 @@ main { min-height: 100vh; padding: 1rem; }
 a { color: cyan; text-decoration: none; }
 nav a { font-weight: bold; }
 a:hover { text-decoration: underline; }
+.gray { color: #888; }
 
 form button[type="submit"] { background: #444; color: inherit; font-family: monospace; border: solid 1px white; padding: 0.25rem; }
 form input[type="text"] { background: #444; color: inherit; font-family: monospace; border: solid 1px white; padding: 0.25rem; }
