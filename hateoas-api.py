@@ -13,6 +13,8 @@ app.config['Access-Control-Allow-Origin'] = '*'
 CORS(app)
 
 connection = Connection('data/main.db')
+    
+
 
 @app.route("/elements")
 def elements():
@@ -29,7 +31,7 @@ def elements():
 #             {% endfor %}
 #         </div>""", items=items)
 
-@app.route("/sequences/<int:id>", methods=["DELETE"])
+@app.route("/sequences/<int:id>/delete", methods=["GET"])
 def delete_sequence(id):
     cursor = connection.cursor()
     cursor.execute("DELETE FROM sequences WHERE id = ?", (id,))
@@ -45,6 +47,31 @@ def create_sequence():
     connection.commit()
     return redirect(url_for("view_sequences"))
 
+@app.route("/sequences/<int:id>/view_portions")
+def view_portions(id):
+    portions = []
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM portions WHERE sequence_id = ?", (id,))
+    portions = [dict(portion) for portion in cursor.fetchall()]
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}View Portions{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>View Portions</h1>
+        {% include "nav.html" %}
+        {% for portion in portions %}
+        <div class="box tall">
+            <pre>{{ portion }}</pre>
+        </div>
+        {% endfor %}
+        {% if not portions %}
+        <div class="box">
+            No portions found
+        </div>
+        {% endif %}
+    </main>
+    {% endblock %}""", portions=portions)
 
 @app.route("/view_sequences")
 def view_sequences():
@@ -63,6 +90,9 @@ def view_sequences():
         {% include "nav.html" %}
         {% for seq in sequences %}
         <div class="box tall">
+            <div class="tall">
+                <a href="{{ url_for('view_portions', id=seq['id']) }}">View Portions</a>
+            </div>
             <pre>{{ seq }}</pre>
             <div class="wide">
                 <form action="{{ url_for('delete_sequence', id=seq['id']) }}" method="DELETE">
@@ -71,6 +101,11 @@ def view_sequences():
             </div>
         </div>
         {% endfor %}
+        {% if not sequences %}
+        <div class="box">
+            No sequences found
+        </div>
+        {% endif %}
         <div class="box tall">
             <h3>Create Sequence</h3>
             <form action="{{ url_for('create_sequence') }}" method="POST" class="tall">
@@ -88,6 +123,10 @@ def view_sequences():
 
 @app.route("/")
 def home():
+    with connection:
+        list_of_tables_to_select_1_from = [ 'sequences', 'portions', 'portionurls' ]
+        for table in list_of_tables_to_select_1_from:
+            connection.execute(f"SELECT 1 FROM {table}")
     return render_template_string("""
         {% extends "base.html" %}
         {% block title %}Home{% endblock %}

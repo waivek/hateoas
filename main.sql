@@ -1,3 +1,4 @@
+BEGIN TRANSACTION;
 
 CREATE TABLE "sequences" (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11,7 +12,7 @@ CREATE TABLE "portions" (
     title       TEXT    NOT NULL,
     epoch       INTEGER NOT NULL,
     duration    INTEGER NOT NULL,
-    order       INTEGER NOT NULL,
+    [order]     INTEGER NOT NULL,
     FOREIGN KEY(sequence_id) REFERENCES sequences(id) ON DELETE CASCADE
 );
 
@@ -24,3 +25,5 @@ CREATE TABLE "portionurls" (
     FOREIGN KEY(portion_id) REFERENCES portions(id) ON DELETE CASCADE,
     UNIQUE(portion_id, url)
 );
+
+END TRANSACTION;

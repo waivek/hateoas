@@ -10,7 +10,8 @@ h1, h2, h3, h4, h5, h6, p, ul, li, pre { margin: 0; }
 
 main { background: #333; color: white; }
 main { min-height: 100vh; padding: 1rem; }
-a { color: cyan; font-weight: bold; text-decoration: none; }
+a { color: cyan; text-decoration: none; }
+nav a { font-weight: bold; }
 a:hover { text-decoration: underline; }
 
 form button[type="submit"] { background: #444; color: inherit; font-family: monospace; border: solid 1px white; padding: 0.25rem; }

@@ -1,2 +1,3 @@
 .direnv/
 data/*.db
+__pycache__/
