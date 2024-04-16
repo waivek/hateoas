@@ -1,0 +1,4 @@
+
+.tall { display: flex; flex-direction: column; }
+.wide { display: flex; flex-direction: row; }
+.box { border: solid 1px black; padding: 0.25rem; }
