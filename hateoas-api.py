@@ -48,6 +48,117 @@ def create_sequence():
     connection.commit()
     return redirect(url_for("view_sequences"))
 
+def urls_to_videos(urls):
+    video_ids = [ url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "") for url in urls ]
+    cursor = videos_connection.cursor()
+    cursor.execute("SELECT * FROM videos WHERE id IN ({})".format(",".join(["?" for _ in video_ids])), video_ids)
+    return [dict(video) for video in cursor.fetchall()]
+
+def portion_ids_to_videos(portion_ids):
+    assert type(portion_ids) == list, f"[portion_ids_to_videos] portion_ids must be a list, got {type(portion_ids)}"
+    cursor = connection.cursor()
+    video_cursor = videos_connection.cursor()
+    videos = []
+
+    for portion_id in portion_ids:
+        cursor.execute("SELECT user_id FROM portions WHERE id = ?", (portion_id,))
+        user_id = cursor.fetchone()[0]
+
+        cursor.execute("SELECT url FROM portionurls WHERE portion_id = ?", (portion_id,))
+        urls = [portionurl["url"] for portionurl in cursor.fetchall()]
+        video_ids = [ url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "") for url in urls ]
+
+        video_cursor.execute("SELECT * FROM videos WHERE id IN ({}) AND user_id == ?".format(",".join(["?" for _ in video_ids])), video_ids + [user_id])
+        rows = video_cursor.fetchall()
+        assert len(rows) == 1, f"[portion_ids_to_videos] expected 1 video, got {len(rows)}"
+        videos.append(dict(rows[0]))
+
+    return videos
+
+@app.route("/sequences/<int:sequence_id>/portions/<int:portion_id>/portionurls/<int:portionurl_id>/unselect", methods=["POST"])
+def unselect_portionurl(sequence_id, portion_id, portionurl_id):
+    with connection:
+        connection.execute("UPDATE portionurls SET selected = 0 WHERE id = ?", (portionurl_id,))
+    return redirect(url_for("view_portion", sequence_id=sequence_id, portion_id=portion_id))
+
+@app.route("/sequences/<int:sequence_id>/portions/<int:portion_id>/portionurls/<int:portionurl_id>/select", methods=["POST"])
+def select_portionurl(sequence_id, portion_id, portionurl_id):
+    with connection:
+        connection.execute("UPDATE portionurls SET selected = 1 WHERE id = ?", (portionurl_id,))
+    return redirect(url_for("view_portion", sequence_id=sequence_id, portion_id=portion_id))
+
+@app.route("/sequences/<int:sequence_id>/portions/<int:portion_id>/view", methods=["GET"])
+def view_portion(sequence_id, portion_id):
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM portions WHERE id = ?", (portion_id,))
+    portion = dict(cursor.fetchone())
+    # portion_user_name = videos_connection.execute("SELECT user_name FROM videos WHERE user_id = ?", (portion["user_id"],)).fetchone()[0]
+    portion_video = portion_ids_to_videos([portion_id])[0]
+    cursor.execute("SELECT * FROM portionurls WHERE portion_id = ?", (portion_id,))
+    portionurls = [dict(url) for url in cursor.fetchall()]
+    
+    videos = urls_to_videos([url["url"] for url in portionurls])
+    extras = []
+    for video in videos:
+        D = {}
+        D["user_id"] = video["user_id"]
+        D["user_name"] = video["user_name"]
+        D["offset"] = portion["epoch"] - video["created_at_epoch"]
+        extras.append(D)
+
+    # reorder extras and portionurls so that the original video is first
+    original_index = next(i for i, extra in enumerate(extras) if extra["user_id"] == portion["user_id"])
+    extras = [extras[original_index]] + extras[:original_index] + extras[original_index+1:]
+    portionurls = [portionurls[original_index]] + portionurls[:original_index] + portionurls[original_index+1:]
+
+    # offset = portion["epoch"] - portion_video["created_at_epoch"]
+    # offset_hhmmss = hhmmss(offset)
+    # return offset_hhmmss
+
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}View Portion{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>View Portion</h1>
+        {% include "nav.html" %}
+        <div>
+            <a href="{{ url_for('view_portions', id=portion['sequence_id']) }}">Back to Portions</a>
+        </div>
+        <div class="box tall">
+            <div>Portion by: {{ portion_video["user_name"] }}, created {{ portion['epoch'] | timeago }}, with a duration of: {{ portion['duration'] | hhmmss }} on video: {{ portion_video['id'] }} offset: {{ (portion['epoch'] - portion_video['created_at_epoch']) | hhmmss   }}</div>
+            <div>{{ portion['title'] }}</div>
+            <div>{{ portion }}</div>
+        </div>
+        <h3>Selected URLs</h3>
+        {% for extra, portionurl in zip(extras, portionurls) if portionurl['selected'] %}
+        <div class="box tall">
+            <div>Portion URL belongs to user: {{ extra['user_name'] }} on url: {{ portionurl["url"] }} offset: {{ extra['offset'] | hhmmss }}</div>
+            {% if portion['user_id'] == extra['user_id'] %}
+            <span>Original URL</span>
+            {% else %}
+            <form action="{{ url_for('unselect_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
+                <button type="submit">Unselect</button>
+            </form>
+            {% endif %}
+            <div>{{ portionurl }}</div>
+        </div>
+        {% endfor %}
+        <h3>Unselected URLs</h3>
+        {% for extra, portionurl in zip(extras, portionurls) if not portionurl['selected'] %}
+        <div class="box tall">
+            <div>Portion URL belongs to user: {{ extra['user_name'] }} on video: {{ extra['user_id'] }} offset: {{ extra['offset'] | hhmmss }}</div>
+            <form action="{{ url_for('select_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
+                <button type="submit">Select</button>
+            </form>
+            <div>{{ portionurl }}</div>
+        </div>
+        {% endfor %}
+
+    </main>
+    {% endblock %}""", portion=portion, portionurls=portionurls, extras=extras, zip=zip, portion_video=portion_video)
+
+
 @app.route("/sequences/<int:id>/view")
 def view_portions(id):
     portions = []
@@ -57,38 +168,36 @@ def view_portions(id):
     cursor.execute("SELECT * FROM portions WHERE sequence_id = ?", (id,))
     portions = [dict(portion) for portion in cursor.fetchall()]
 
-
-
     extras = []
     for portion in portions:
         D = {}
-        cursor.execute("SELECT * FROM portionurls WHERE portion_id = ?", (portion["id"],))
+        cursor = connection.execute("SELECT * FROM portionurls WHERE portion_id = ?", (portion["id"],))
         D["portionurls"] = [dict(url) for url in cursor.fetchall()]
-
-
-        cursor.execute("SELECT url FROM portionurls WHERE portion_id = ? AND selected = 1", (portion["id"],))
-        original_url = cursor.fetchone()[0]
-        video_id = original_url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "")
-        cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
-        video = dict(cursor.fetchone())
+        
+        videos = urls_to_videos([portionurl["url"] for portionurl in D["portionurls"]])
+        video = next(video for video in videos if video["user_id"] == portion["user_id"])
+        
         D["video"] = video
         D["offset"] = portion["epoch"] - video["created_at_epoch"]
         extras.append(D)
 
     return render_template_string("""
     {% extends "base.html" %}
-    {% block title %}View Portions{% endblock %}
+    {% block title %}View Sequence {{ sequence['name'] }} / View Portions{% endblock %}
     {% block body %}
     <main class="mono tall">
         
-        <h1>Sequence {{ sequence['name'] }}</h1>
+        <h1>View Sequence {{ sequence['name'] }} / View Portions</h1>
         <h3>Portions</h3>
         {% include "nav.html" %}
         {% for extra, portion in zip(extras, portions) %}
         <div class="box tall">
-            <div><a href="">View Portion with {{ extra['portionurls'] | length }} URL{{ 's' if extra['portionurls'] | length != 1 else '' }}</a></div>
+            <div><a href="{{ url_for('view_portion', sequence_id=sequence['id'], portion_id=portion['id']) }}">View Portion with {{ extra['portionurls'] | length }} URL{{ 's' if extra['portionurls'] | length != 1 else '' }}</a></div>
             <div>Portion by: {{ extra['video']['user_name'] }}, created {{ extra['video']['created_at_epoch'] | timeago }}, with a duration of: {{ portion['duration'] | hhmmss }} on video: {{ extra['video']['id'] }} offset: {{ extra['offset'] }}</div>
             <div>{{ portion['title'] }}</div>
+            <form action="{{ url_for('delete_portion', portion_id=portion['id']) }}" method="GET">
+                <button type="submit">Delete</button>
+            </form>
             <div>{{ portion }}</div>
         </div>
         {% endfor %}
@@ -99,6 +208,7 @@ def view_portions(id):
         {% endif %}
     </main>
     {% endblock %}""", portions=portions, sequence=sequence, extras=extras, zip=zip)
+
 
 @app.route("/sequences/view")
 def view_sequences():
@@ -180,6 +290,15 @@ def get_synced_videos(video_id, offset):
     return [dict(video) for video in cursor.fetchall()]
 
 
+
+@app.route("/portions/<portion_id>/delete", methods=["GET"])
+def delete_portion(portion_id):
+    cursor = connection.cursor()
+    cursor.execute("SELECT sequence_id FROM portions WHERE id = ?", (portion_id,))
+    sequence_id = cursor.fetchone()[0]
+    cursor.execute("DELETE FROM portions WHERE id = ?", (portion_id,))
+    connection.commit()
+    return redirect(url_for("view_portions", id=sequence_id))
 
 @app.route("/sequences/<sequence_id>/portions", methods=["POST"])
 def create_portion(sequence_id):
