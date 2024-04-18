@@ -27,4 +27,5 @@ CREATE TABLE "portionurls" (
     UNIQUE(portion_id, url)
 );
 
+
 END TRANSACTION;

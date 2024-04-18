@@ -14,7 +14,39 @@ CORS(app)
 
 connection = Connection('data/main.db')
 videos_connection = Connection('data/videos.db')
-    
+
+class Sequence:
+
+    def __init__(self, D):
+        self.id = D["id"]
+        self.name = D["name"]
+        self.description = D["description"]
+        self.portions = []
+
+class Portion:
+
+    def __init__(self, D):
+
+        self.id = D["id"]
+        self.title = D["title"]
+        self.epoch = D["epoch"]
+        self.duration = D["duration"]
+        self.order = D["order"]
+        self.user_id = D["user_id"]
+        self.portionurls = []
+
+class PortionUrl:
+
+    def __init__(self, D):
+
+        self.id = D["id"]
+        self.url = D["url"]
+        self.selected = D["selected"]
+        self.video_id = self.url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "")
+        self.user_id = urls_to_videos([self.url])[0]["user_id"]
+        self.user_name = urls_to_videos([self.url])[0]["user_name"]
+
+
 # register global filter
 @app.template_filter('timeago')
 def timeago(value):
@@ -523,8 +555,26 @@ def videos():
 
 
 
-
-
+@app.route("/downloads")
+def downloads():
+    cursor = connection.execute("SELECT * FROM sequences")
+    sequences = [ dict(seq) for seq in cursor.fetchall() ]
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Downloads{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Downloads</h1>
+        {% include "nav.html" %}
+        {% for sequence in sequences %}
+        <div class="box tall">
+            <div>{{ sequence['name'] }}</div>
+            <div><a href="">Download {{ sequence['name'] }}</a></div>
+            <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
+        </div>
+        {% endfor %}
+    </main>
+    {% endblock %}""", sequences=sequences)
 
 def main():
     app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=True)
