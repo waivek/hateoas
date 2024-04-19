@@ -346,12 +346,15 @@ def create_portion(sequence_id):
     cursor.execute("INSERT INTO portions (sequence_id, title, epoch, duration, user_id, `order`) VALUES (?, ?, ?, ?, ?, ?)", (sequence_id, title, epoch, duration, request.form["user_id"], order))
     portion_id = cursor.lastrowid
 
+    videos_cursor = videos_connection.execute("SELECT user_id FROM videos WHERE url = ?", (request.form["url"],))
+    user_id = videos_cursor.fetchone()[0]
+
     # portionurls(portion_id, url, original, selected)
     cursor = connection.cursor()
-    cursor.execute("INSERT INTO portionurls (portion_id, url, selected) VALUES (?, ?, ?)", (portion_id, request.form["url"], True))
+    cursor.execute("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?)", (portion_id, request.form["url"], True, user_id))
     cursor = connection.cursor()
     videos = get_synced_videos(request.form["video_id"], start)
-    portionurls = [(portion_id, video["url"], False) for video in videos]
+    portionurls = [(portion_id, video["url"], False, video["user_id"]) for video in videos]
     cursor.executemany("INSERT INTO portionurls (portion_id, url, selected) VALUES (?, ?, ?)", portionurls)
     connection.commit()
     return redirect(url_for("view_portions", id=sequence_id))

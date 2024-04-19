@@ -23,8 +23,10 @@ CREATE TABLE "portionurls" (
     portion_id INTEGER NOT NULL,
     url        TEXT    NOT NULL,
     selected   INTEGER NOT NULL,
+    user_id    TEXT    NOT NULL,
     FOREIGN KEY(portion_id) REFERENCES portions(id) ON DELETE CASCADE,
     UNIQUE(portion_id, url)
+
 );
 
 
