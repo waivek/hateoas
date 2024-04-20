@@ -7,6 +7,7 @@ from flask import redirect
 from flask import url_for
 from flask_cors import CORS
 from dbutils import Connection
+from dataclasses import dataclass
 
 app = Flask(__name__)
 app.config['Access-Control-Allow-Origin'] = '*'
@@ -15,37 +16,35 @@ CORS(app)
 connection = Connection('data/main.db')
 videos_connection = Connection('data/videos.db')
 
+@dataclass
 class Sequence:
+    id: int
+    name: str
+    description: str
+    def __getitem__(self, key):
+        return getattr(self, key)
 
-    def __init__(self, D):
-        self.id = D["id"]
-        self.name = D["name"]
-        self.description = D["description"]
-        self.portions = []
-
+@dataclass
 class Portion:
+    id: int
+    sequence_id: int
+    title: str
+    epoch: int
+    duration: int
+    user_id: int
+    order: int
+    def __getitem__(self, key):
+        return getattr(self, key)
 
-    def __init__(self, D):
-
-        self.id = D["id"]
-        self.title = D["title"]
-        self.epoch = D["epoch"]
-        self.duration = D["duration"]
-        self.order = D["order"]
-        self.user_id = D["user_id"]
-        self.portionurls = []
-
+@dataclass
 class PortionUrl:
-
-    def __init__(self, D):
-
-        self.id = D["id"]
-        self.url = D["url"]
-        self.selected = D["selected"]
-        self.video_id = self.url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "")
-        self.user_id = urls_to_videos([self.url])[0]["user_id"]
-        self.user_name = urls_to_videos([self.url])[0]["user_name"]
-
+    id: int
+    portion_id: int
+    url: str
+    selected: bool
+    user_id: int
+    def __getitem__(self, key):
+        return getattr(self, key)
 
 # register global filter
 @app.template_filter('timeago')
@@ -123,11 +122,11 @@ def select_portionurl(sequence_id, portion_id, portionurl_id):
 def view_portion(sequence_id, portion_id):
     cursor = connection.cursor()
     cursor.execute("SELECT * FROM portions WHERE id = ?", (portion_id,))
-    portion = dict(cursor.fetchone())
+    portion = Portion(**cursor.fetchone())
     # portion_user_name = videos_connection.execute("SELECT user_name FROM videos WHERE user_id = ?", (portion["user_id"],)).fetchone()[0]
     portion_video = portion_ids_to_videos([portion_id])[0]
     cursor.execute("SELECT * FROM portionurls WHERE portion_id = ?", (portion_id,))
-    portionurls = [dict(url) for url in cursor.fetchall()]
+    portionurls = [PortionUrl(**portionurl) for portionurl in cursor.fetchall()]
     
     videos = urls_to_videos([url["url"] for url in portionurls])
     extras = []
@@ -196,15 +195,16 @@ def view_portions(id):
     portions = []
     cursor = connection.cursor()
     cursor.execute("SELECT * FROM sequences WHERE id = ?", (id,))
-    sequence = dict(cursor.fetchone())
+    sequence = Sequence(**cursor.fetchone())
     cursor.execute("SELECT * FROM portions WHERE sequence_id = ?", (id,))
-    portions = [dict(portion) for portion in cursor.fetchall()]
+    portions = [Portion(**portion) for portion in cursor.fetchall()]
 
     extras = []
     for portion in portions:
         D = {}
         cursor = connection.execute("SELECT * FROM portionurls WHERE portion_id = ?", (portion["id"],))
-        D["portionurls"] = [dict(url) for url in cursor.fetchall()]
+        D["portionurls"] = [PortionUrl(**url) for url in cursor.fetchall()]
+        
         
         videos = urls_to_videos([portionurl["url"] for portionurl in D["portionurls"]])
         video = next(video for video in videos if video["user_id"] == portion["user_id"])
@@ -246,13 +246,18 @@ def view_portions(id):
 def view_sequences():
     sequences = []
     cursor = connection.cursor()
+
     cursor.execute("SELECT * FROM sequences")
-    sequences = [dict(seq) for seq in cursor.fetchall()]
+    sequences = [Sequence(**seq) for seq in cursor.fetchall()]
 
     # get portion-count of each sequence
+    extras = []
     for seq in sequences:
+        D = {}
         cursor.execute("SELECT COUNT(*) FROM portions WHERE sequence_id = ?", (seq["id"],))
-        seq["portion_count"] = cursor.fetchone()[0]
+        D["portion_count"] = cursor.fetchone()[0]
+        extras.append(D)
+
 
 
 
@@ -263,10 +268,10 @@ def view_sequences():
     <main class="mono tall">
         <h1>View Sequences</h1>
         {% include "nav.html" %}
-        {% for seq in sequences %}
+        {% for seq, extra in zip(sequences, extras) %}
         <div class="box tall">
             <div class="tall">
-                <a href="{{ url_for('view_portions', id=seq['id']) }}">View {{ seq['portion_count'] }} Portion{{ 's' if seq['portion_count'] != 1 else '' }} of {{ seq['name'] }}</a>
+                <a href="{{ url_for('view_portions', id=seq['id']) }}">View {{ extra['portion_count'] }} Portion{{ 's' if extra['portion_count'] != 1 else '' }} of {{ seq['name'] }}</a>
             </div>
             <div>{{ seq }}</div>
             <div class="wide">
@@ -294,7 +299,7 @@ def view_sequences():
             </form>
         </div>
     </main>
-    {% endblock %}""", sequences=sequences)
+    {% endblock %}""", sequences=sequences, extras=extras, zip=zip)
 
 
 @app.route("/")
@@ -413,8 +418,8 @@ def form_create_portion():
 
 @app.route("/videos/<id>")
 def video(id):
-    cursor = connection.execute("SELECT id, name FROM sequences")
-    sequences = [ dict(seq) for seq in cursor.fetchall() ]
+    cursor = connection.execute("SELECT * FROM sequences")
+    sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
 
 
     cursor = videos_connection.cursor()
