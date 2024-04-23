@@ -7,7 +7,7 @@ from flask import redirect
 from flask import url_for
 from flask_cors import CORS
 from dbutils import Connection
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 app = Flask(__name__)
 app.config['Access-Control-Allow-Origin'] = '*'
@@ -15,26 +15,6 @@ CORS(app)
 
 connection = Connection('data/main.db')
 videos_connection = Connection('data/videos.db')
-
-@dataclass
-class Sequence:
-    id: int
-    name: str
-    description: str
-    def __getitem__(self, key):
-        return getattr(self, key)
-
-@dataclass
-class Portion:
-    id: int
-    sequence_id: int
-    title: str
-    epoch: int
-    duration: int
-    user_id: int
-    order: int
-    def __getitem__(self, key):
-        return getattr(self, key)
 
 @dataclass
 class PortionUrl:
@@ -45,6 +25,62 @@ class PortionUrl:
     user_id: int
     def __getitem__(self, key):
         return getattr(self, key)
+
+class Portion:
+    def __init__(self, id, sequence_id, title, epoch, duration, user_id, order):
+        self.id = id
+        self.sequence_id = sequence_id
+        self.title = title
+        self.epoch = epoch
+        self.duration = duration
+        self.user_id = user_id
+        self.order = order
+
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM portionurls WHERE portion_id = ?", (id,))
+        self.portionurls = [PortionUrl(**portionurl) for portionurl in cursor.fetchall()]
+
+    def pretty(self):
+        portionurl = f"None: {[pu.user_id for pu in self.portionurls ]}"
+        for pu in self.portionurls:
+            if pu.user_id == self.user_id:
+                portionurl = pu
+                break
+
+        # portionurl = next(pu for pu in self.portionurls if pu.user_id == self.user_id)
+        return str(portionurl)
+        video_id = portionurl.url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "")
+        cursor = videos_connection.cursor()
+        cursor.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
+        video = dict(cursor.fetchone())
+        user_name = video["user_name"]
+        offset = self.epoch - video["created_at_epoch"]
+        return f"Portion by: {user_name}, with a duration of: {self.duration} on video: {video_id} offset: {offset}"
+
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __repr__(self):
+        return f"Potion(id={repr(self.id)}, sequence_id={repr(self.sequence_id)}, title={repr(self.title)}, epoch={repr(self.epoch)}, duration={repr(self.duration)}, user_id={repr(self.user_id)}, order={repr(self.order)})"
+
+class Sequence:
+    def __init__(self, id, name, description):
+        self.id = id
+        self.name = name
+        self.description = description
+
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM portions WHERE sequence_id = ?", (id,))
+        self.portions = [Portion(**portion) for portion in cursor.fetchall()]
+
+
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __repr__(self):
+        return f"Sequence(id={repr(self.id)}, name={repr(self.name)}, description={repr(self.description)})"
+
 
 # register global filter
 @app.template_filter('timeago')
@@ -566,7 +602,9 @@ def videos():
 @app.route("/downloads")
 def downloads():
     cursor = connection.execute("SELECT * FROM sequences")
-    sequences = [ dict(seq) for seq in cursor.fetchall() ]
+    sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
+
+    sequences[0].portions
     return render_template_string("""
     {% extends "base.html" %}
     {% block title %}Downloads{% endblock %}
@@ -576,7 +614,12 @@ def downloads():
         {% include "nav.html" %}
         {% for sequence in sequences %}
         <div class="box tall">
-            <div>{{ sequence['name'] }}</div>
+            <div>{{ sequence['name'] }} has {{ sequence['portions'].__len__() }} portion{{ 's' if sequence['portions'].__len__() != 1 else ''}}</div>
+            <ol>
+                {% for portion in sequence['portions'] %}
+                <li>{{ portion.pretty() }}</li>
+                {% endfor %}
+            </ol>
             <div><a href="">Download {{ sequence['name'] }}</a></div>
             <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
         </div>
