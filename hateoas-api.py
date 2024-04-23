@@ -41,21 +41,17 @@ class Portion:
         self.portionurls = [PortionUrl(**portionurl) for portionurl in cursor.fetchall()]
 
     def pretty(self):
-        portionurl = f"None: {[pu.user_id for pu in self.portionurls ]}"
-        for pu in self.portionurls:
-            if pu.user_id == self.user_id:
-                portionurl = pu
-                break
-
-        # portionurl = next(pu for pu in self.portionurls if pu.user_id == self.user_id)
-        return str(portionurl)
+        portionurl = next(pu for pu in self.portionurls if pu.user_id == self.user_id)
         video_id = portionurl.url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "")
         cursor = videos_connection.cursor()
         cursor.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
         video = dict(cursor.fetchone())
         user_name = video["user_name"]
         offset = self.epoch - video["created_at_epoch"]
-        return f"Portion by: {user_name}, with a duration of: {self.duration} on video: {video_id} offset: {offset}"
+        # return f"Portion by: {user_name}, with a duration of: {self.duration} on video: {video_id} offset: {offset}"
+        selected_url_count = len([pu for pu in self.portionurls if pu.selected])
+        total_url_count = len(self.portionurls)
+        return f"Portion({user_name}, {self.duration}s, {video_id} @ {hhmmss(offset)}, {selected_url_count}/{total_url_count} URLs selected)"
 
 
     def __getitem__(self, key):
@@ -626,6 +622,10 @@ def downloads():
         {% endfor %}
     </main>
     {% endblock %}""", sequences=sequences)
+
+@app.route("/downloads/<sequence_id>")
+def downloads_sequence(sequence_id):
+    pass
 
 def main():
     app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=True)
