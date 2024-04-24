@@ -7,3 +7,4 @@ timeago
 python-dotenv
 Flask-SQLAlchemy
 SQLAlchemy-serializer
+python-slugify

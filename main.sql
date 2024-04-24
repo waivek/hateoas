@@ -14,7 +14,8 @@ CREATE TABLE "portions" (
     epoch INTEGER NOT NULL, 
     duration INTEGER NOT NULL, 
     user_id TEXT NOT NULL, 
-    [order] INTEGER NOT NULL, FOREIGN KEY(sequence_id) REFERENCES sequences(id) ON DELETE CASCADE
+    [order] INTEGER NOT NULL, FOREIGN KEY(sequence_id) REFERENCES sequences(id) ON DELETE CASCADE,
+
 );
 
 CREATE TABLE "portionurls" (
@@ -26,3 +27,6 @@ CREATE TABLE "portionurls" (
 );
 
 END TRANSACTION;
+-- -- Constraints
+-- -- Table: portions. Purpose: ensure that the order is unique for each sequence
+-- UNIQUE(sequence_id, [order])
