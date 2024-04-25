@@ -31,6 +31,12 @@ def get_download_filename(portionurl: PortionUrl, portion: Portion, video: dict)
     return ".".join([order_padded, title_slug, user_name, video_id, offset_hhmmss, "mp4"])
 
 
+def portionurl_downloaded(portionurl: PortionUrl) -> bool:
+    assert app and app.static_folder, "[portionurl_downloaded] app.static_folder is not set"
+    static_folder = app.static_folder
+    filename = f"{static_folder}/downloads/{portionurl.id}.mp4"
+    import os
+    return os.path.exists(filename)
 
 def download_hash(portionurl: PortionUrl, portion: Portion, video: dict) -> str:
     offset = portion.epoch - video["created_at_epoch"]
@@ -129,6 +135,9 @@ def unselect_portionurl(sequence_id, portion_id, portionurl_id):
 def select_portionurl(sequence_id, portion_id, portionurl_id):
     with connection:
         connection.execute("UPDATE portionurls SET selected = 1 WHERE id = ?", (portionurl_id,))
+        connection.execute("INSERT INTO downloads (portionurl_id, status) VALUES (?, 'paused')", (portionurl_id,))
+
+
     return redirect(url_for("view_portion", sequence_id=sequence_id, portion_id=portion_id))
 
 @app.route("/sequences/<int:sequence_id>/portions/<int:portion_id>/view", methods=["GET"])
@@ -397,10 +406,13 @@ def create_portion(sequence_id):
     # portionurls(portion_id, url, original, selected)
     cursor = connection.cursor()
     cursor.execute("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?)", (portion_id, request.form["url"], True, user_id))
+    cursor.execute("INSERT INTO downloads (portionurl_id, status) VALUES (?, 'paused')", (cursor.lastrowid,))
+
     cursor = connection.cursor()
     videos = get_synced_videos(request.form["video_id"], start)
     portionurls = [(portion_id, video["url"], False, video["user_id"]) for video in videos]
     cursor.executemany("INSERT INTO portionurls (portion_id, url, selected) VALUES (?, ?, ?)", portionurls)
+
     connection.commit()
     return redirect(url_for("view_portions", id=sequence_id))
 
@@ -654,6 +666,19 @@ def downloads_sequence(sequence_id):
                         {% set D = format_portionurl_for_download(portionurl, portion) %}
                         
                         <div>{{ D['user_name'] }} - {{ D['filename'] }} <span class="gray">{{ portionurl.id }}</span></div>
+                        <div>
+                            {% if portionurl_downloaded(portionurl) %}
+                            <a href="{{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}">
+                                {{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}
+                            </a>
+                            {% else %}
+                            <span class="gray">{{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}</span>
+                            {% endif %}
+                        </div>
+
+                        <div>
+                            <a href="{{ portionurl.url }}?t={{ D['offset'] | hhmmss }}">{{ portionurl.url }}?t={{ D['offset'] | hhmmss }}</a>
+                        </div>
                     </li>
                     {% endfor %}
                 </ol>
@@ -664,7 +689,7 @@ def downloads_sequence(sequence_id):
             <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
         </div>
     </main>
-    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download)
+    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded)
 
 
 def main():

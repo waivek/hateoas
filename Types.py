@@ -10,13 +10,24 @@ def hhmmss(value):
     timestamp = Timestamp(value)
     return timestamp.hh_mm_ss
 
-@dataclass
 class PortionUrl:
-    id: int
-    portion_id: int
-    url: str
-    selected: bool
-    user_id: int
+
+    def __init__(self, id, portion_id, url, selected, user_id):
+        self.id = id
+        self.portion_id = portion_id
+        self.url = url
+        self.selected = selected
+        self.user_id = user_id
+
+    def offset(self):
+        cursor = connection.execute("SELECT epoch FROM portions WHERE id = ?", (self.portion_id,))
+        epoch = cursor.fetchone()[0]
+        cursor = videos_connection.execute("SELECT created_at_epoch FROM videos WHERE url = ?", (self.url,))
+        created_at_epoch = cursor.fetchone()[0]
+        difference = epoch - created_at_epoch
+        assert difference >= 0, f"Epoch is less than created_at_epoch: {difference}"
+        return difference
+        
     def __getitem__(self, key):
         return getattr(self, key)
 
