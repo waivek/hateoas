@@ -27,6 +27,18 @@ class PortionUrl:
         difference = epoch - created_at_epoch
         assert difference >= 0, f"Epoch is less than created_at_epoch: {difference}"
         return difference
+
+    def download_status(self):
+        cursor = connection.execute("SELECT status FROM downloads WHERE portionurl_id = ?", (self.id,))
+        row = cursor.fetchone()
+        status = row[0]
+        return status
+
+    def download_id(self):
+        cursor = connection.execute("SELECT id FROM downloads WHERE portionurl_id = ?", (self.id,))
+        row = cursor.fetchone()
+        download_id = row[0]
+        return download_id
         
     def __getitem__(self, key):
         return getattr(self, key)

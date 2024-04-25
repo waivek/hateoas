@@ -10,6 +10,8 @@ def Connection(path):
         os.makedirs(os.path.dirname(path), exist_ok=True)
     connection = sqlite3.connect(path, check_same_thread=False) # type: ignore
     connection.row_factory = sqlite3.Row                        # type: ignore
+    # pragma foreign_keys=ON is needed for each connection
+    connection.execute("PRAGMA foreign_keys = ON")
     return typing.cast(sq3.Connection, connection)
 
 def key_id():

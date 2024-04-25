@@ -140,6 +140,13 @@ def select_portionurl(sequence_id, portion_id, portionurl_id):
 
     return redirect(url_for("view_portion", sequence_id=sequence_id, portion_id=portion_id))
 
+@app.route("/downloads/<download_id>", methods=["POST"])
+def set_download_status(download_id):
+    status = request.form["status"]
+    with connection:
+        connection.execute("UPDATE downloads SET status = ? WHERE id = ?", (status, download_id))
+    return redirect(request.referrer)
+
 @app.route("/sequences/<int:sequence_id>/portions/<int:portion_id>/view", methods=["GET"])
 def view_portion(sequence_id, portion_id):
     cursor = connection.cursor()
@@ -405,13 +412,13 @@ def create_portion(sequence_id):
 
     # portionurls(portion_id, url, original, selected)
     cursor = connection.cursor()
-    cursor.execute("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?)", (portion_id, request.form["url"], True, user_id))
+    cursor.execute("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?, ?)", (portion_id, request.form["url"], True, user_id))
     cursor.execute("INSERT INTO downloads (portionurl_id, status) VALUES (?, 'paused')", (cursor.lastrowid,))
 
     cursor = connection.cursor()
     videos = get_synced_videos(request.form["video_id"], start)
     portionurls = [(portion_id, video["url"], False, video["user_id"]) for video in videos]
-    cursor.executemany("INSERT INTO portionurls (portion_id, url, selected) VALUES (?, ?, ?)", portionurls)
+    cursor.executemany("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?, ?)", portionurls)
 
     connection.commit()
     return redirect(url_for("view_portions", id=sequence_id))
@@ -666,6 +673,13 @@ def downloads_sequence(sequence_id):
                         {% set D = format_portionurl_for_download(portionurl, portion) %}
                         
                         <div>{{ D['user_name'] }} - {{ D['filename'] }} <span class="gray">{{ portionurl.id }}</span></div>
+                        <div>Status: {{ portionurl.download_status() }}</div>
+                        {% if portionurl.download_status() == 'paused' %}
+                        <form action="{{ url_for('set_download_status', download_id=portionurl.download_id()) }}" method="POST">
+                            <button type="submit" name="status" value="pending">Download</button>
+                        </form>
+                        {% endif %}
+
                         <div>
                             {% if portionurl_downloaded(portionurl) %}
                             <a href="{{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}">

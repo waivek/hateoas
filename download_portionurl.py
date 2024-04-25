@@ -25,6 +25,7 @@ def download_portionurl(portionurl_id):
     portionurl = PortionUrl(**cursor.fetchone())
     cursor = connection.execute("SELECT duration FROM portions WHERE id = ?", (portionurl.portion_id,))
 
+    # assert cursor.rowcount == 1, f"portion_id {portionurl.portion_id} not found"
     duration = cursor.fetchone()[0]
     url = portionurl.url
     offset = portionurl.offset()
@@ -56,6 +57,16 @@ def main():
     exit_code = download_portionurl(portionurl_id)
     sys.exit(exit_code)
 
+# if __name__ == "__main__":
+#     main()
+# else:
 if __name__ == "__main__":
-    main()
-
+    if sys.argv[1]:
+        portionurl_id = int(sys.argv[1])
+        assert portionurl_id >= 0, f"portionurl_id is negative: {portionurl_id}"
+        ic(portionurl_id)
+        exit_code = download_portionurl(portionurl_id)
+        sys.exit(exit_code)
+    else:
+        print("No argument passed.")
+    print("Done")
