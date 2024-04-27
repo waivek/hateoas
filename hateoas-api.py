@@ -714,6 +714,35 @@ def downloads_sequence(sequence_id):
     {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded)
 
 
+@app.route("/static", methods=["GET"])
+def staticfiles():
+    import os
+    here = str(app.static_folder)
+    files_recursive = []
+    links_recursive = []
+    for root, dirs, files in os.walk(here):
+        for file in files:
+            files_recursive.append(os.path.join(root, file))
+            links_recursive.append("static" + os.path.join(root, file).replace(here, ""))
+
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Static Files{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Static Files</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+            {% for file, link in zip(files_recursive, links_recursive) %}
+            <div class="wide">
+                <span>{{ file }}</span>
+                <a href="{{ link }}">{{ link }}</a>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+    {% endblock %}""", files_recursive=files_recursive, links_recursive=links_recursive, zip=zip)
+
 def main():
     app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=True)
 

@@ -9,12 +9,11 @@ from waivek import Timestamp
 from waivek import Code
 from waivek import ic
 from refresh_downloads_table import refresh_downloads_table
+from portionurl_to_download_path import portionurl_to_download_path
 
 connection = Connection("data/main.db")
 videos_connection = Connection("data/videos.db")
 
-def portionurl_to_download_path(portionurl_id):
-    return rel2abs(f"static/downloads/{portionurl_id}.mp4")
 
 def colon_timestamp(seconds):
     assert seconds >= 0, f"[colon_timestamp] seconds is negative: {seconds}"
