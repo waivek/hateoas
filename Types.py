@@ -43,6 +43,9 @@ class PortionUrl:
     def __getitem__(self, key):
         return getattr(self, key)
 
+    def __str__(self):
+        return f"PortionUrl(id={repr(self.id)}, portion_id={repr(self.portion_id)}, url={repr(self.url)}, selected={repr(self.selected)}, user_id={repr(self.user_id)})"
+
 class Portion:
     def __init__(self, id, sequence_id, title, epoch, duration, user_id, order):
         self.id = id

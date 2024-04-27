@@ -1,6 +1,7 @@
 
 .tall { display: flex; flex-direction: column; gap: 0.5rem; }
 .wide { display: flex; flex-direction: row; gap: 0.5rem; }
+.wide { flex-wrap: wrap; }
 .box { border: solid 1px white; padding: 0.5rem; }
 .mono, .font-mono { font-family: monospace; }
 .bold, .font-bold { font-weight: bold; }
@@ -20,3 +21,4 @@ form input[type="text"] { background: #444; color: inherit; font-family: monospa
 form input[type="text"]:active, form input[type="text"]:focus { outline-color: transparent; }
 form input[readonly] { background: #888; }
 form input[required]:invalid { border-color: red; }
+

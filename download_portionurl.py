@@ -8,6 +8,7 @@ import os.path
 from waivek import Timestamp
 from waivek import Code
 from waivek import ic
+from refresh_downloads_table import refresh_downloads_table
 
 connection = Connection("data/main.db")
 videos_connection = Connection("data/videos.db")
@@ -20,7 +21,7 @@ def colon_timestamp(seconds):
     timestamp = Timestamp(seconds).timestamp
     return timestamp
 
-def download_portionurl(portionurl_id):
+def portionurl_id_to_command(portionurl_id):
     cursor = connection.execute("SELECT * FROM portionurls WHERE id = ?", (portionurl_id,))
     portionurl = PortionUrl(**cursor.fetchone())
     cursor = connection.execute("SELECT duration FROM portions WHERE id = ?", (portionurl.portion_id,))
@@ -42,8 +43,12 @@ def download_portionurl(portionurl_id):
     ic(duration)
     args = f'--download-sections "*{start}-{end}"'
 
-    print(f"{args = }")
     command = f"yt-dlp {url} -o {download_path} {args} --force-keyframes-at-cuts"
+    return command
+
+def download_portionurl(portionurl_id):
+    download_path = portionurl_to_download_path(portionurl_id)
+    command = portionurl_id_to_command(portionurl_id)
     print(command)
     exit_code = os.system(command)
     if exit_code == 0:
@@ -51,6 +56,18 @@ def download_portionurl(portionurl_id):
     if exit_code != 0:
         print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}")
     return exit_code
+
+def loop():
+    import time
+    loop_duration_seconds = 50
+    for i in range(loop_duration_seconds):
+        cursor = connection.execute("SELECT id FROM portionurls WHERE status = 'pending' LIMIT 1")
+        portionurl_id = cursor.fetchone()
+        if portionurl_id:
+            portionurl_id = portionurl_id[0]
+            print(f"Downloading portionurl {portionurl_id}")
+            download_portionurl(portionurl_id)
+        time.sleep(1)
 
 def main():
     portionurl_id = 26
@@ -62,10 +79,14 @@ def main():
 # else:
 if __name__ == "__main__":
     if sys.argv[1]:
+        refresh_downloads_table()
         portionurl_id = int(sys.argv[1])
+        connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?", (portionurl_id,))
+        connection.commit()
         assert portionurl_id >= 0, f"portionurl_id is negative: {portionurl_id}"
         ic(portionurl_id)
         exit_code = download_portionurl(portionurl_id)
+        refresh_downloads_table()
         sys.exit(exit_code)
     else:
         print("No argument passed.")

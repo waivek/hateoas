@@ -197,30 +197,38 @@ def view_portion(sequence_id, portion_id):
 
             <div>{{ portion }}</div>
         </div>
-        <h3>Selected URLs</h3>
-        {% for extra, portionurl in zip(extras, portionurls) if portionurl['selected'] %}
-        <div class="box tall">
-            <div>Portion URL belongs to user: {{ extra['user_name'] }} on url: {{ portionurl["url"] }} offset: {{ extra['offset'] | hhmmss }}</div>
-            {% if portion['user_id'] == extra['user_id'] %}
-            <span>Original URL</span>
-            {% else %}
-            <form action="{{ url_for('unselect_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
-                <button type="submit">Unselect</button>
-            </form>
-            {% endif %}
-            <div>{{ portionurl }}</div>
+        <div class="tall">
+            <div class="tall">
+                <h3>Selected URLs</h3>
+                <div class="wide">
+                {% for extra, portionurl in zip(extras, portionurls) if portionurl['selected'] %}
+                    <div class="box tall">
+                        <div title="{{ portionurl["url"] }} @ {{ extra['offset'] | hhmmss }}">{{ extra['user_name'] }}</div>
+                        {% if portion['user_id'] == extra['user_id'] %}
+                        <span>Original URL</span>
+                        {% else %}
+                        <form action="{{ url_for('unselect_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
+                            <button type="submit">Unselect</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+                </div>
+            </div>
+            <div class="tall">
+                <h3>Unselected URLs</h3>
+                <div class="wide">
+                {% for extra, portionurl in zip(extras, portionurls) if not portionurl['selected'] %}
+                    <div class="box tall">
+                        <div title="{{ portionurl["url"] }} @ {{ extra['offset'] | hhmmss }}">{{ extra['user_name'] }}</div>
+                        <form action="{{ url_for('select_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
+                            <button type="submit">Select</button>
+                        </form>
+                    </div>
+                {% endfor %}
+                </div>
+            </div>
         </div>
-        {% endfor %}
-        <h3>Unselected URLs</h3>
-        {% for extra, portionurl in zip(extras, portionurls) if not portionurl['selected'] %}
-        <div class="box tall">
-            <div>Portion URL belongs to user: {{ extra['user_name'] }} on video: {{ extra['user_id'] }} offset: {{ extra['offset'] | hhmmss }}</div>
-            <form action="{{ url_for('select_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
-                <button type="submit">Select</button>
-            </form>
-            <div>{{ portionurl }}</div>
-        </div>
-        {% endfor %}
 
     </main>
     {% endblock %}""", portion=portion, portionurls=portionurls, extras=extras, zip=zip, portion_video=portion_video)
