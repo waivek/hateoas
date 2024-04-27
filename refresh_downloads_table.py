@@ -2,6 +2,8 @@
 from dbutils import Connection
 from portionurl_to_download_path import portionurl_to_download_path
 import os.path
+import time
+import sys
 connection = Connection("data/main.db")
 
 from enum import Enum
@@ -50,11 +52,32 @@ def refresh_downloads_table():
     connection.commit()
 
 def loop():
-    import time
+    lock_file_path = "/tmp/refresh_downloads_table.lock"
+    if os.path.exists(lock_file_path):
+        log("Lock file exists. Exiting.")
+        return
+    with open(lock_file_path, "w") as f:
+        f.write(time.ctime())
+
+    # loop_duration = 60
+    # for _ in range(loop_duration):
     while True:
         refresh_downloads_table()
+        log("Refreshed downloads table.")
         time.sleep(1)
 
+    os.remove(lock_file_path)
+    log("Removed lock file.")
+
+def log(message, *args):
+    print(f"{int(time.time())} refresh_downloads_table.py {message}", *args)
+
 if __name__ == "__main__":
-    refresh_downloads_table()
-    print("Downloads table refreshed.")
+    log(f"{sys.argv = }")
+    if len(sys.argv) == 1:
+        refresh_downloads_table()
+        log("Refreshed downloads table.")
+    elif sys.argv[1] == "loop":
+        log("Looping")
+        loop()
+
