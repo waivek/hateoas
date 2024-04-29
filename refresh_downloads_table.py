@@ -51,7 +51,16 @@ def refresh_downloads_table():
                 assert False, "Should not reach here."
     connection.commit()
 
+def self_hash():
+    # get the hash of this file
+    import hashlib
+    with open(__file__, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+import signal
+import os
 def loop():
+
     lock_file_path = "/tmp/refresh_downloads_table.lock"
     if os.path.exists(lock_file_path):
         log("Lock file exists. Exiting.")
@@ -59,11 +68,20 @@ def loop():
     with open(lock_file_path, "w") as f:
         f.write(time.ctime())
 
+    original_hash = self_hash()
     # loop_duration = 60
     # for _ in range(loop_duration):
     while True:
         refresh_downloads_table()
         log("Refreshed downloads table.")
+        new_hash = self_hash()
+        if new_hash != original_hash:
+            log("Hash changed. Exiting.")
+            break
+
+        # handle signals
+        # break on signal INT
+
         time.sleep(1)
 
     os.remove(lock_file_path)
