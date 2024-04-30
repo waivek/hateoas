@@ -4,6 +4,8 @@ from portionurl_to_download_path import portionurl_to_download_path
 import os.path
 import time
 import sys
+import signal
+import os
 connection = Connection("data/main.db")
 
 from enum import Enum
@@ -57,35 +59,54 @@ def self_hash():
     with open(__file__, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
 
-import signal
-import os
+class LockFile:
+
+    def __init__(self):
+        self.lock_file_path = "/tmp/refresh_downloads_table.lock"
+        assert not self.exists(), "Lock file already exists."
+
+    def exists(self):
+        return os.path.exists(self.lock_file_path)
+
+    def acquire(self):
+        PID = os.getpid()
+        time_string = time.ctime()
+        lines = [ f"PID: {PID}", f"Time: {time_string}" ]
+        with open(self.lock_file_path, "w") as f:
+            f.write("\n".join(lines))
+
+    def release(self):
+        os.remove(self.lock_file_path)
+
 def loop():
 
-    lock_file_path = "/tmp/refresh_downloads_table.lock"
-    if os.path.exists(lock_file_path):
-        log("Lock file exists. Exiting.")
-        return
-    with open(lock_file_path, "w") as f:
-        f.write(time.ctime())
+    lock_file = LockFile()
+
+    def cleanup(signum, frame):
+        log(f"Received signal {signum}.")
+        lock_file.release()
+
+    lock_file.acquire()
+
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
 
     original_hash = self_hash()
-    # loop_duration = 60
-    # for _ in range(loop_duration):
+
+    # if file has changed || lock file has been deleted || INT or TERM signal has been received, we break the loop
+    # while lock_file.exists() and original_hash == self_hash() and not (signal.SIGINT or signal.SIGTERM):
     while True:
+        if not lock_file.exists():
+            log("Lock file has been deleted.")
+            break
+        if original_hash != self_hash():
+            log("File has changed.")
+            cleanup(None, None)
+            break
         refresh_downloads_table()
         log("Refreshed downloads table.")
-        new_hash = self_hash()
-        if new_hash != original_hash:
-            log("Hash changed. Exiting.")
-            break
-
-        # handle signals
-        # break on signal INT
-
         time.sleep(1)
 
-    os.remove(lock_file_path)
-    log("Removed lock file.")
 
 def log(message, *args):
     print(f"{int(time.time())} refresh_downloads_table.py {message}", *args)

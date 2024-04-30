@@ -10,6 +10,7 @@ from waivek import Code
 from waivek import ic
 from refresh_downloads_table import refresh_downloads_table
 from portionurl_to_download_path import portionurl_to_download_path
+import time
 
 connection = Connection("data/main.db")
 videos_connection = Connection("data/videos.db")
@@ -56,8 +57,32 @@ def download_portionurl(portionurl_id):
         print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}")
     return exit_code
 
+def download_portionurl_interruptable(portionurl_id):
+    import signal
+    import subprocess
+    process = None
+    def cleanup(signum, frame):
+        print("[download_portionurl.py] [download_portionurl_interruptable] Cleaning up")
+        assert process is not None, "process is None"
+        process.kill()
+        exit_code = process.wait()
+        print(f"Exit code: {exit_code}")
+        sys.exit(exit_code)
+
+    download_path = portionurl_to_download_path(portionurl_id)
+    command = portionurl_id_to_command(portionurl_id)
+    print(command)
+    signal.signal(signal.SIGINT, cleanup)
+    signal.signal(signal.SIGTERM, cleanup)
+    process = subprocess.Popen(command, shell=True)
+    exit_code = process.wait()
+    if exit_code == 0:
+        print(Code.GREEN + f"Downloaded portionurl {portionurl_id} to {download_path}")
+    if exit_code != 0:
+        print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}")
+    return exit_code
+
 def loop():
-    import time
     loop_duration_seconds = 50
     for i in range(loop_duration_seconds):
         cursor = connection.execute("SELECT id FROM portionurls WHERE status = 'pending' LIMIT 1")
