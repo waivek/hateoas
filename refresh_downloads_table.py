@@ -54,7 +54,6 @@ def refresh_downloads_table():
     connection.commit()
 
 def self_hash():
-    # get the hash of this file
     import hashlib
     with open(__file__, "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
@@ -63,7 +62,17 @@ class LockFile:
 
     def __init__(self):
         self.lock_file_path = "/tmp/refresh_downloads_table.lock"
-        assert not self.exists(), "Lock file already exists."
+        if self.exists():
+            self.remove_lock_file_if_pid_does_not_exist()
+        assert not self.exists(), f"Lock file {self.lock_file_path} already exists."
+
+    def remove_lock_file_if_pid_does_not_exist(self):
+        from waivek import Code
+        D = self.parse_lock_file()
+        PID = int(D["PID"])
+        if not os.path.exists(f"/proc/{PID}"):
+            print(Code.RED + f"Removing lock file {self.lock_file_path} because PID {PID} does not exist.")
+            self.release()
 
     def exists(self):
         return os.path.exists(self.lock_file_path)
@@ -71,12 +80,24 @@ class LockFile:
     def acquire(self):
         PID = os.getpid()
         time_string = time.ctime()
-        lines = [ f"PID: {PID}", f"Time: {time_string}" ]
+        time_epoch = int(time.time())
+        lines = [ f"PID: {PID}", f"Time: {time_string}", f"Epoch: {time_epoch}" ]
         with open(self.lock_file_path, "w") as f:
             f.write("\n".join(lines))
 
     def release(self):
         os.remove(self.lock_file_path)
+
+    def parse_lock_file(self):
+        with open(self.lock_file_path) as f:
+            lines = f.readlines()
+        D = {}
+        for line in lines:
+            key, value = line.split(":", 1)
+            key = key.strip()
+            value = value.strip()
+            D[key] = value
+        return D
 
 def loop():
 
@@ -93,8 +114,6 @@ def loop():
 
     original_hash = self_hash()
 
-    # if file has changed || lock file has been deleted || INT or TERM signal has been received, we break the loop
-    # while lock_file.exists() and original_hash == self_hash() and not (signal.SIGINT or signal.SIGTERM):
     while True:
         if not lock_file.exists():
             log("Lock file has been deleted.")
@@ -107,7 +126,6 @@ def loop():
         log("Refreshed downloads table.")
         time.sleep(1)
 
-
 def log(message, *args):
     print(f"{int(time.time())} refresh_downloads_table.py {message}", *args)
 
@@ -117,6 +135,5 @@ if __name__ == "__main__":
         refresh_downloads_table()
         log("Refreshed downloads table.")
     elif sys.argv[1] == "loop":
-        log("Looping")
         loop()
 
