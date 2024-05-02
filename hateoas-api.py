@@ -7,8 +7,8 @@ from flask import redirect
 from flask import url_for
 from flask_cors import CORS
 from dbutils import Connection
-from dataclasses import dataclass, field
 from Types import Sequence, Portion, PortionUrl
+from typing import TypedDict
 
 
 app = Flask(__name__)
@@ -45,7 +45,6 @@ def download_hash(portionurl: PortionUrl, portion: Portion, video: dict) -> str:
     # return hashlib.md5("".join(map(str, hash_inputs)).encode()).hexdigest()
     return ",".join(map(str, hash_inputs))
 
-from typing import TypedDict
 td = TypedDict("td", {"user_name": str, "url": str, "offset": int, "duration": int, "filename": str, "hash": str})
 def format_portionurl_for_download(portionurl: PortionUrl, portion: Portion) -> td:
     # format to return { user_name, url, offset, duration }
@@ -105,7 +104,8 @@ def urls_to_videos(urls):
     return [dict(video) for video in cursor.fetchall()]
 
 def portion_ids_to_videos(portion_ids):
-    assert type(portion_ids) == list, f"[portion_ids_to_videos] portion_ids must be a list, got {type(portion_ids)}"
+    # assert type(portion_ids) == list, f"[portion_ids_to_videos] portion_ids must be a list, got {type(portion_ids)}"
+    assert isinstance(portion_ids, list), f"[portion_ids_to_videos] portion_ids must be a list, got {type(portion_ids)}"
     cursor = connection.cursor()
     video_cursor = videos_connection.cursor()
     videos = []
