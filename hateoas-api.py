@@ -641,16 +641,28 @@ def downloads():
     {% block title %}Downloads{% endblock %}
     {% block body %}
     <main class="mono tall">
+    <style>
+    </style>
         <h1>Downloads</h1>
         {% include "nav.html" %}
         {% for sequence in sequences %}
         <div class="box tall">
             <div>{{ sequence['name'] }} has {{ sequence['portions'].__len__() }} portion{{ 's' if sequence['portions'].__len__() != 1 else ''}}</div>
+            {% if sequence['portions'] %}
             <ol>
                 {% for portion in sequence['portions'] %}
-                <li>{{ portion.pretty() }}</li>
+                <li>
+                    <div>{{ portion['title'] }}</div>
+                    <div class="wide">
+                        {% for portionurl in portion['portionurls'] if portionurl['selected'] %}
+                        <div>{{ portionurl.user_id }}</div>
+                        {% endfor %}
+                    </div>
+                    <div class="gray">{{ portion.pretty() }}</div>
+                </li>
                 {% endfor %}
             </ol>
+            {% endif %}
             <div><a href="{{ url_for('downloads_sequence', sequence_id=sequence['id']) }}">Download {{ sequence['name'] }}</a></div>
             <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
         </div>
