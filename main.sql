@@ -31,6 +31,15 @@ CREATE TABLE downloads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     portionurl_id INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'paused' CHECK (status IN ('paused', 'pending', 'downloading', 'complete', 'failed')),
+    pid INTEGER UNIQUE,
+    -- if pid is assigned, then the status is 'downloading'
+    CHECK ((status = 'downloading' AND pid IS NOT NULL) OR (status != 'downloading' AND pid IS NULL)),
+    FOREIGN KEY (portionurl_id) REFERENCES portionurls (id) ON DELETE CASCADE
+) STRICT;
+
+CREATE TABLE download_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    portionurl_id INTEGER NOT NULL UNIQUE,
     FOREIGN KEY (portionurl_id) REFERENCES portionurls (id) ON DELETE CASCADE
 ) STRICT;
 

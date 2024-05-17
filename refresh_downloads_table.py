@@ -32,6 +32,43 @@ def portionurl_id_to_enum(portionurl_id):
     else:
         assert False, "Should not reach here."
 
+
+def get_status(portionurl_id):
+    import psutil
+    cursor = connection.execute("SELECT pid, status FROM downloads WHERE portionurl_id = ?;", (portionurl_id,))
+    pid = cursor.fetchone()[0]
+
+    pid_is_assigned = pid is not None
+    part_file_exists = os.path.exists(portionurl_to_download_path(portionurl_id) + ".part")
+    completed_file_exists = os.path.exists(portionurl_to_download_path(portionurl_id))
+
+    if pid_is_assigned and not psutil.pid_exists(pid):
+
+        cursor = connection.execute("SELECT pid FROM workers WHERE busy = 0;")
+        row = cursor.fetchone()
+        if row is not None:
+            worker_pid = row[0]
+            connection.execute("UPDATE downloads SET pid = ? WHERE portionurl_id = ?;", (worker_pid, portionurl_id))
+            connection.commit()
+            return "downloading"
+        else:
+            connection.execute("UPDATE downloads SET pid = NULL, status = 'pending' WHERE portionurl_id = ?;", (portionurl_id,))
+            connection.commit()
+            return "pending"
+
+    enum = portionurl_id_to_enum(portionurl_id)
+    match enum:
+        case Path.BOTH_EXIST:
+            raise Exception(f"Both path and part file exist for portionurl_id {portionurl_id}.")
+        case Path.NEITHER_EXIST:
+            return "pending"
+        case Path.ONLY_PATH_EXIST:
+            return "complete"
+        case Path.ONLY_PART_EXIST:
+            return "downloading"
+        case _:
+            assert False, "Should not reach here."
+
 def refresh_downloads_table():
     cursor = connection.execute("SELECT portionurl_id FROM downloads;")
     portionurl_ids = [row[0] for row in cursor.fetchall()]
@@ -51,6 +88,7 @@ def refresh_downloads_table():
                 connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?;", (portionurl_id,))
             case _:
                 assert False, "Should not reach here."
+
     connection.commit()
 
 def self_hash():
