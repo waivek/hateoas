@@ -22,7 +22,7 @@ def log(message: str, *args):
     prefix = Code.LIGHTBLACK_EX + f"[download_worker.py] [PID={os.getpid()}]"
     formatted_message = message % args
     output = " ".join([prefix, formatted_message])
-    print(output)
+    print(output, flush=True)
 
 def get_self_hash() -> str:
     with open(__file__, "r") as f:
@@ -86,15 +86,52 @@ def get_portionurl_id():
 
     return None
 
-def loop():
+def get_global_lock_path():
+    if len(sys.argv) > 1 and sys.argv[1] in [ "red", "blue", "green", "yellow" ]:
+        color = sys.argv[1]
+        return f"/tmp/download_worker_{color}.lock"
+    return f"/tmp/download_worker_{os.getpid()}.lock"
 
+def global_lock_exists():
+
+    lock_path = get_global_lock_path()
+    return os.path.exists(lock_path)
+
+def release_stale_global_colored_lock():
+    if len(sys.argv) != 2:
+        return
+    if sys.argv[1] not in [ "red", "blue", "green", "yellow" ]:
+        return
+    lock_path = get_global_lock_path()
+    if not os.path.exists(lock_path):
+        return
+    pid = int(open(lock_path, "r").read())
+    if psutil.pid_exists(pid):
+        return
+    os.remove(lock_path)
+    log("Released stale global lock: %s (%s)", pid, lock_path)
+
+def global_lock_acquire():
+    lock_path = get_global_lock_path()
+    with open(lock_path, "w") as f:
+        f.write(str(os.getpid()))
+    log("Acquired global lock for PID: %s (%s)", os.getpid(), lock_path)
+
+def global_lock_release():
+    lock_path = get_global_lock_path()
+    os.remove(lock_path)
+    log("Released global lock for PID: %s (%s)", os.getpid(), lock_path)
+
+def loop():
 
     def cleanup(signum: int, frame: FrameType | None):
         nonlocal allow_loop
         global connection
         allow_loop = False
         connection.close()
-        log("Cleaning up.")
+        log("Cleaning up. (signum=%d)", signum)
+        if os.path.exists(get_global_lock_path()):
+            global_lock_release()
         sys.exit(0)
 
     allow_loop = True
@@ -122,6 +159,10 @@ def loop():
             log("Downloading portionurl_id: %s", portionurl_id)
             # download_portionurl_interruptable(portionurl_id)
             exit_code = download_portionurl(portionurl_id)
+            if exit_code == 0:
+                log("Downloaded portionurl_id: %s", portionurl_id)
+            else:
+                log("Failed to download portionurl_id: %s (exit_code=%d)", portionurl_id, exit_code)
             lock_release(portionurl_id)
             if exit_code != 0:
                 allow_loop = False
@@ -130,9 +171,18 @@ def loop():
             time.sleep(1)
 
 def main():
+    log("")
+    release_stale_global_colored_lock()
+    if global_lock_exists():
+        log("Another instance is running.")
+        sys.exit(0)
+    global_lock_acquire()
     loop()
+    global_lock_release()
 
 connection = Connection("data/main.db")
-
+# 
 if __name__ == "__main__":
     main()
+
+# run.vim:red
