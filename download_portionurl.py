@@ -47,38 +47,12 @@ def portionurl_id_to_command(portionurl_id):
     return command
 
 def download_portionurl(portionurl_id):
-    download_path = portionurl_to_download_path(portionurl_id)
     command = portionurl_id_to_command(portionurl_id)
-    print(command)
+    ic(command)
     exit_code = os.system(command)
     if exit_code == 0:
-        print(Code.GREEN + f"Downloaded portionurl {portionurl_id} to {download_path}")
-    if exit_code != 0:
-        print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}")
-    return exit_code
-
-def download_portionurl_interruptable(portionurl_id):
-    import signal
-    import subprocess
-    process = None
-    def cleanup(signum, frame):
-        print("[download_portionurl.py] [download_portionurl_interruptable] Cleaning up")
-        assert process is not None, "process is None"
-        process.kill()
-        exit_code = process.wait()
-        print(f"Exit code: {exit_code}")
-        sys.exit(exit_code)
-
-    download_path = portionurl_to_download_path(portionurl_id)
-    command = portionurl_id_to_command(portionurl_id)
-    print(command)
-    signal.signal(signal.SIGINT, cleanup)
-    signal.signal(signal.SIGTERM, cleanup)
-    process = subprocess.Popen(command, shell=True)
-    exit_code = process.wait()
-    if exit_code == 0:
-        print(Code.GREEN + f"Downloaded portionurl {portionurl_id} to {download_path}")
-    if exit_code != 0:
+        print(Code.GREEN + f"Downloaded portionurl {portionurl_id} to {portionurl_to_download_path(portionurl_id)}")
+    else:
         print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}")
     return exit_code
 
@@ -94,24 +68,24 @@ def loop():
         time.sleep(1)
 
 def main():
-    portionurl_id = 26
+    portionurl_id = 3
     exit_code = download_portionurl(portionurl_id)
     sys.exit(exit_code)
 
-# if __name__ == "__main__":
-#     main()
-# else:
 if __name__ == "__main__":
-    if sys.argv[1]:
-        refresh_downloads_table()
-        portionurl_id = int(sys.argv[1])
-        connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?", (portionurl_id,))
-        connection.commit()
-        assert portionurl_id >= 0, f"portionurl_id is negative: {portionurl_id}"
-        ic(portionurl_id)
-        exit_code = download_portionurl(portionurl_id)
-        refresh_downloads_table()
-        sys.exit(exit_code)
-    else:
-        print("No argument passed.")
-    print("Done")
+    main()
+# else:
+# if __name__ == "__main__":
+#     if sys.argv[1]:
+#         refresh_downloads_table()
+#         portionurl_id = int(sys.argv[1])
+#         connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?", (portionurl_id,))
+#         connection.commit()
+#         assert portionurl_id >= 0, f"portionurl_id is negative: {portionurl_id}"
+#         ic(portionurl_id)
+#         exit_code = download_portionurl(portionurl_id)
+#         refresh_downloads_table()
+#         sys.exit(exit_code)
+#     else:
+#         print("No argument passed.")
+#     print("Done")
