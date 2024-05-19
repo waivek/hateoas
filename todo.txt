@@ -1,0 +1,6 @@
+
+Add flush to print statements that print yt-dlp command and metadata info.
+When selecting portionurl_ids, filter out non `selected`.
+Add case for youtube downloading as high bitrate causes lot of problems.
+We are getting false negatives for downloaded files which have the extension `webm`.
+? Silence "another instance running"
