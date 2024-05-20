@@ -1,6 +1,6 @@
 
 from dbutils import Connection
-from portionurl_to_download_path import portionurl_to_download_path
+from portionurl_to_download_path import downloaded, downloads_folder
 import os.path
 import time
 import sys
@@ -8,87 +8,29 @@ import signal
 import os
 connection = Connection("data/main.db")
 
-from enum import Enum
+def partially_downloaded(portionurl_id):
+    mp4_partial_path = os.path.join(downloads_folder(), f"{portionurl_id}.mp4.part")
+    webm_partial_path = os.path.join(downloads_folder(), f"{portionurl_id}.webm.part")
+    return os.path.exists(mp4_partial_path) or os.path.exists(webm_partial_path)
 
-class Path(Enum):
-    BOTH_EXIST = 1
-    NEITHER_EXIST = 2
-    ONLY_PATH_EXIST = 3
-    ONLY_PART_EXIST = 4
-
-
-def portionurl_id_to_enum(portionurl_id):
-    path = portionurl_to_download_path(portionurl_id)
-    part_path = path + ".part"
-    both_exist = os.path.exists(path) and os.path.exists(part_path)
-    if both_exist:
-        return Path.BOTH_EXIST
-    elif not os.path.exists(path) and not os.path.exists(part_path):
-        return Path.NEITHER_EXIST
-    elif os.path.exists(path) and not os.path.exists(part_path):
-        return Path.ONLY_PATH_EXIST
-    elif not os.path.exists(path) and os.path.exists(part_path):
-        return Path.ONLY_PART_EXIST
-    else:
-        assert False, "Should not reach here."
-
-
-def get_status(portionurl_id):
-    import psutil
-    cursor = connection.execute("SELECT pid, status FROM downloads WHERE portionurl_id = ?;", (portionurl_id,))
-    pid = cursor.fetchone()[0]
-
-    pid_is_assigned = pid is not None
-    part_file_exists = os.path.exists(portionurl_to_download_path(portionurl_id) + ".part")
-    completed_file_exists = os.path.exists(portionurl_to_download_path(portionurl_id))
-
-    if pid_is_assigned and not psutil.pid_exists(pid):
-
-        cursor = connection.execute("SELECT pid FROM workers WHERE busy = 0;")
-        row = cursor.fetchone()
-        if row is not None:
-            worker_pid = row[0]
-            connection.execute("UPDATE downloads SET pid = ? WHERE portionurl_id = ?;", (worker_pid, portionurl_id))
-            connection.commit()
-            return "downloading"
-        else:
-            connection.execute("UPDATE downloads SET pid = NULL, status = 'pending' WHERE portionurl_id = ?;", (portionurl_id,))
-            connection.commit()
-            return "pending"
-
-    enum = portionurl_id_to_enum(portionurl_id)
-    match enum:
-        case Path.BOTH_EXIST:
-            raise Exception(f"Both path and part file exist for portionurl_id {portionurl_id}.")
-        case Path.NEITHER_EXIST:
-            return "pending"
-        case Path.ONLY_PATH_EXIST:
-            return "complete"
-        case Path.ONLY_PART_EXIST:
-            return "downloading"
-        case _:
-            assert False, "Should not reach here."
 
 def refresh_downloads_table():
     cursor = connection.execute("SELECT portionurl_id FROM downloads;")
     portionurl_ids = [row[0] for row in cursor.fetchall()]
     for portionurl_id in portionurl_ids:
-        enum = portionurl_id_to_enum(portionurl_id)
-        match enum:
-            case Path.BOTH_EXIST:
-                raise Exception(f"Both path and part file exist for portionurl_id {portionurl_id}.")
-            case Path.NEITHER_EXIST:
-                cursor = connection.execute("SELECT status FROM downloads WHERE portionurl_id = ?;", (portionurl_id,))
-                status = cursor.fetchone()[0]
-                if status in [ "downloading", "complete" ]:
-                    connection.execute("UPDATE downloads SET status = 'pending' WHERE portionurl_id = ?;", (portionurl_id,))
-            case Path.ONLY_PATH_EXIST:
-                connection.execute("UPDATE downloads SET status = 'complete' WHERE portionurl_id = ?;", (portionurl_id,))
-            case Path.ONLY_PART_EXIST:
-                connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?;", (portionurl_id,))
-            case _:
-                assert False, "Should not reach here."
-
+        if downloaded(portionurl_id) and partially_downloaded(portionurl_id):
+            raise Exception(f"Both path and part file exist for portionurl_id {portionurl_id}.")
+        elif not downloaded(portionurl_id) and not partially_downloaded(portionurl_id):
+            cursor = connection.execute("SELECT status FROM downloads WHERE portionurl_id = ?;", (portionurl_id,))
+            status = cursor.fetchone()[0]
+            if status in [ "downloading", "complete" ]:
+                connection.execute("UPDATE downloads SET status = 'pending' WHERE portionurl_id = ?;", (portionurl_id,))
+        elif downloaded(portionurl_id) and not partially_downloaded(portionurl_id):
+            connection.execute("UPDATE downloads SET status = 'complete' WHERE portionurl_id = ?;", (portionurl_id,))
+        elif not downloaded(portionurl_id) and partially_downloaded(portionurl_id):
+            connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?;", (portionurl_id,))
+        else:
+            assert False, "Should not reach here."
     connection.commit()
 
 def self_hash():

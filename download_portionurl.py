@@ -1,16 +1,12 @@
 
 from dbutils import Connection
-from Types import PortionUrl, Portion
-from waivek import rel2abs
+from Types import PortionUrl
 import sys
 import os
 import os.path
 from waivek import Timestamp
 from waivek import Code
-from waivek import ic
-from refresh_downloads_table import refresh_downloads_table
-from portionurl_to_download_path import portionurl_to_download_path
-import time
+from portionurl_to_download_path import downloads_folder
 
 connection = Connection("data/main.db")
 videos_connection = Connection("data/videos.db")
@@ -30,62 +26,46 @@ def portionurl_id_to_command(portionurl_id):
     duration = cursor.fetchone()[0]
     url = portionurl.url
     offset = portionurl.offset()
-    download_path = portionurl_to_download_path(portionurl_id)
-    download_dir = os.path.dirname(download_path)
-    os.makedirs(download_dir, exist_ok=True)
+    os.makedirs(downloads_folder(), exist_ok=True)
 
     # use yt-dlp to download `url` from `offset` to `offset + duration` and save it to `download_path`
     # --download-sections "*02:32:00-02:33:00"
     start = colon_timestamp(offset)
     end = colon_timestamp(offset + duration)
-    ic(start)
-    ic(end)
-    ic(duration)
+    print("start: " + (Code.LIGHTCYAN_EX + start), flush=True)
+    print("end: " + (Code.LIGHTCYAN_EX + end), flush=True)
+    print("duration: " + (Code.LIGHTCYAN_EX + str(duration)), flush=True)
     args = f'--download-sections "*{start}-{end}"'
 
-    command = f"yt-dlp {url} -o {download_path} {args} --force-keyframes-at-cuts"
+    download_path = os.path.join(downloads_folder(), str(portionurl_id))
+    command = f"yt-dlp {url} -o '{download_path}.%(ext)s' {args} --force-keyframes-at-cuts"
     return command
+
+def get_downloaded_path(portionurl_id):
+    mp4_path = os.path.join(downloads_folder(), str(portionurl_id) + ".mp4")
+    webm_path = os.path.join(downloads_folder(), str(portionurl_id) + ".webm")
+    if os.path.exists(mp4_path):
+        return mp4_path
+    elif os.path.exists(webm_path):
+        return webm_path
+    else:
+        raise FileNotFoundError(f"Neither {mp4_path} nor {webm_path} exists")
 
 def download_portionurl(portionurl_id):
     command = portionurl_id_to_command(portionurl_id)
-    ic(command)
+    print("command: " + (Code.LIGHTCYAN_EX + command), flush=True)
     exit_code = os.system(command)
     if exit_code == 0:
-        print(Code.GREEN + f"Downloaded portionurl {portionurl_id} to {portionurl_to_download_path(portionurl_id)}")
+        downloaded_path = get_downloaded_path(portionurl_id)
+        print(Code.GREEN + f"Downloaded portionurl {portionurl_id} to {downloaded_path}", flush=True)
     else:
-        print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}")
+        print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}", flush=True)
     return exit_code
 
-def loop():
-    loop_duration_seconds = 50
-    for i in range(loop_duration_seconds):
-        cursor = connection.execute("SELECT id FROM portionurls WHERE status = 'pending' LIMIT 1")
-        portionurl_id = cursor.fetchone()
-        if portionurl_id:
-            portionurl_id = portionurl_id[0]
-            print(f"Downloading portionurl {portionurl_id}")
-            download_portionurl(portionurl_id)
-        time.sleep(1)
-
 def main():
-    portionurl_id = 3
+    portionurl_id = 15
     exit_code = download_portionurl(portionurl_id)
     sys.exit(exit_code)
 
 if __name__ == "__main__":
     main()
-# else:
-# if __name__ == "__main__":
-#     if sys.argv[1]:
-#         refresh_downloads_table()
-#         portionurl_id = int(sys.argv[1])
-#         connection.execute("UPDATE downloads SET status = 'downloading' WHERE portionurl_id = ?", (portionurl_id,))
-#         connection.commit()
-#         assert portionurl_id >= 0, f"portionurl_id is negative: {portionurl_id}"
-#         ic(portionurl_id)
-#         exit_code = download_portionurl(portionurl_id)
-#         refresh_downloads_table()
-#         sys.exit(exit_code)
-#     else:
-#         print("No argument passed.")
-#     print("Done")

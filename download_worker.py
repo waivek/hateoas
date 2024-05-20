@@ -6,17 +6,13 @@ from dbutils import Connection
 import signal
 import os
 import hashlib
-from waivek import ic
-from waivek import ib, rel2abs
 from waivek import Code
 import sys
 from types import FrameType
 import time
-from download_queue import portionurl_id_queue_pop
-from portionurl_to_download_path import portionurl_to_download_path
+from portionurl_to_download_path import downloads_folder, downloaded
 import psutil
 from download_portionurl import download_portionurl
-from operator import mod
 
 def log(message: str, *args):
     prefix = Code.LIGHTBLACK_EX + f"[download_worker.py] [PID={os.getpid()}]"
@@ -31,13 +27,8 @@ def get_self_hash() -> str:
     file_hash = hashlib.md5(contents.encode()).hexdigest()
     return file_hash
 
-def downloaded(portionurl_id):
-    download_path = portionurl_to_download_path(portionurl_id)
-    return os.path.exists(download_path)
-
 def get_lock_path(portionurl_id):
-    download_path = portionurl_to_download_path(portionurl_id)
-    lock_path = f"{download_path}.lock"
+    lock_path = os.path.join(downloads_folder(), f"{portionurl_id}.lock")
     return lock_path
 
 def lock_acquire(portionurl_id):
@@ -67,7 +58,7 @@ def lock_is_stale(portionurl_id):
 
 def get_portionurl_id():
     global connection
-    cursor = connection.execute("SELECT id FROM portionurls;")
+    cursor = connection.execute("SELECT id FROM portionurls WHERE selected = 1;")
     portionurl_ids = [ id for id, in cursor.fetchall() ]
 
     # filter out downloaded portionurls
@@ -152,7 +143,6 @@ def loop():
             log("Received signal to stop.")
             break
 
-        # portionurl_id = portionurl_id_queue_pop()
         portionurl_id = get_portionurl_id()
         if portionurl_id:
             lock_acquire(portionurl_id)
@@ -171,11 +161,11 @@ def loop():
             time.sleep(1)
 
 def main():
-    log("")
     release_stale_global_colored_lock()
     if global_lock_exists():
-        log("Another instance is running.")
+        # Another instance is running.
         sys.exit(0)
+    log("")
     global_lock_acquire()
     loop()
     global_lock_release()

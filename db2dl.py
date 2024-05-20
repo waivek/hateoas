@@ -4,7 +4,6 @@
 import os
 import sys
 from dbutils import Connection
-from download_portionurl import portionurl_to_download_path
 from download_portionurl import download_portionurl
 from waivek import ic
 from refresh_downloads_table import refresh_downloads_table
