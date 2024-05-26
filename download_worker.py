@@ -160,7 +160,30 @@ def loop():
         if allow_loop:
             time.sleep(1)
 
+def tables_exist(connection, table_names: list[str]) -> bool:
+    # get list of table-names in sqlite database
+    cursor = connection.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    db_table_names = [ name for name, in cursor.fetchall() ]
+    return all([ name in db_table_names for name in table_names ])
+
+def get_missing_table_names(connection, table_names: list[str]) -> list[str]:
+    # get list of table-names in sqlite database
+    cursor = connection.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    db_table_names = [ name for name, in cursor.fetchall() ]
+    return [ name for name in table_names if name not in db_table_names ]
+
+def connection_to_db_path(connection):
+    return connection.execute("PRAGMA database_list;").fetchone()[2]
+
 def main():
+    if not tables_exist(connection, [ "portionurls" ]):
+        missing_table_names = get_missing_table_names(connection, [ "portionurls" ])
+        db_path = connection_to_db_path(connection)
+        log(db_path)
+        log("Missing tables: %s", missing_table_names)
+        log("Exiting. (tables do not exist)")
+
+        sys.exit(0)
     release_stale_global_colored_lock()
     if global_lock_exists():
         # Another instance is running.
@@ -175,4 +198,4 @@ connection = Connection("data/main.db")
 if __name__ == "__main__":
     main()
 
-# run.vim:red
+# run.vim:blue
