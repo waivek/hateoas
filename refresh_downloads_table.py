@@ -1,6 +1,6 @@
 
 from dbutils import Connection
-from portionurl_to_download_path import downloaded, downloads_folder
+from portionurl_to_download_path import downloaded, downloads_folder, partially_downloaded
 import os.path
 import time
 import sys
@@ -8,10 +8,6 @@ import signal
 import os
 connection = Connection("data/main.db")
 
-def partially_downloaded(portionurl_id):
-    mp4_partial_path = os.path.join(downloads_folder(), f"{portionurl_id}.mp4.part")
-    webm_partial_path = os.path.join(downloads_folder(), f"{portionurl_id}.webm.part")
-    return os.path.exists(mp4_partial_path) or os.path.exists(webm_partial_path)
 
 
 def refresh_downloads_table():

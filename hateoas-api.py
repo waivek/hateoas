@@ -8,6 +8,7 @@ from flask import url_for
 from flask_cors import CORS
 from dbutils import Connection
 from Types import Sequence, Portion, PortionUrl
+from portionurl_to_download_path import downloaded, partially_downloaded
 from typing import TypedDict
 
 
@@ -672,8 +673,10 @@ def downloads():
 
 @app.route("/downloads/<sequence_id>")
 def downloads_sequence(sequence_id):
+    from get_worker_info import get_worker_info
     cursor = connection.execute("SELECT * FROM sequences WHERE id = ?", (sequence_id,))
     sequence = Sequence(**cursor.fetchone())
+    worker_table = get_worker_info()
 
     return render_template_string("""
     {% extends "base.html" %}
@@ -681,9 +684,28 @@ def downloads_sequence(sequence_id):
     {% block body %}
     <main class="mono tall">
         <h1>Downloads {{ sequence['name'] }}</h1>
+        <style>
+        .pending { color: yellow; }
+        .complete { color: lightgreen; }
+        </style>
+
         {% include "nav.html" %}
         <div class="tall">
             <div>{{ sequence['name'] }} has {{ sequence['portions'].__len__() }} portion{{ 's' if sequence['portions'].__len__() != 1 else ''}}</div>
+            <div class='tall'>
+            {% for worker in worker_table %}
+                {% if worker.lock_status == 'stale' %}
+                <div>
+                    <span class="red">{{ worker.lock_status }}</span>  - {{ worker.lock_filename }} ({{ worker.pid }}) (lock_file exists but PID doesn’t)
+                </div>
+                {% else %}
+                <div>
+                    <span class="green">{{ worker.lock_status }}</span>  - {{ worker.lock_filename }} ({{ worker.pid }})
+                </div>
+                {% endif %}
+
+            {% endfor %}
+            </div>
             {% for portion in sequence['portions'] %}
             <div class="box">
                 <div>{{ portion.pretty() }}</div>
@@ -693,7 +715,13 @@ def downloads_sequence(sequence_id):
                         {% set D = format_portionurl_for_download(portionurl, portion) %}
                         
                         <div>{{ D['user_name'] }} - {{ D['filename'] }} <span class="gray">{{ portionurl.id }}</span></div>
-                        <div>Status: {{ portionurl.download_status() }}</div>
+                        {% if downloaded(portionurl.id) %}
+                        <div>Status: <span class="green">complete ({{ portionurl.id }})</span></div>
+                        {% elif partially_downloaded(portionurl.id) %}
+                        <div>Status: <span class="">downloading ({{ portionurl.id }})</span></div>
+                        {% else %}
+                        <div>Status: <span class="red">pending ({{ portionurl.id }})</span></div>
+                        {% endif %}
                         {% if portionurl.download_status() == 'paused' %}
                         <form action="{{ url_for('set_download_status', download_id=portionurl.download_id()) }}" method="POST">
                             <button type="submit" name="status" value="pending">Download</button>
@@ -723,7 +751,7 @@ def downloads_sequence(sequence_id):
             <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
         </div>
     </main>
-    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded)
+    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded, worker_table=worker_table, downloaded=downloaded, partially_downloaded=partially_downloaded)
 
 
 @app.route("/static", methods=["GET"])
