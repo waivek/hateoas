@@ -8,3 +8,7 @@ python-dotenv
 Flask-SQLAlchemy
 SQLAlchemy-serializer
 python-slugify
+
+# chat.py
+requests
+requests_ip_rotator

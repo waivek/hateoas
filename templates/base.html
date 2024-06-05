@@ -3,6 +3,7 @@
     <head>
         <title>{% block title %}Base (override me!){% endblock %}</title>
         <link rel="stylesheet" href="{{ url_for('static', filename='css/hateoas.css') }}">
+        {% block head %}{% endblock %}
     </head>
     <body>
         {% block body %}{% endblock %}

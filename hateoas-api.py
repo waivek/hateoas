@@ -369,12 +369,10 @@ def home():
     """)
 
 def get_synced_videos(video_id, offset):
-    cursor = videos_connection.cursor()
-    cursor.execute("SELECT created_at_epoch + ? AS epoch, user_id FROM videos WHERE id = ?", (offset, video_id))
+    cursor = videos_connection.execute("SELECT created_at_epoch + ? AS epoch, user_id FROM videos WHERE id = ?", (offset, video_id))
     epoch, user_id = cursor.fetchone()
     cursor.execute("SELECT * FROM videos WHERE ? BETWEEN created_at_epoch AND created_at_epoch + duration AND user_id != ?", (epoch, user_id))
     return [dict(video) for video in cursor.fetchall()]
-
 
 @app.route("/portions/<portion_id>", methods=["POST"])
 def update_portion(portion_id):
@@ -493,6 +491,7 @@ def video(id):
     cursor = videos_connection.cursor()
     cursor.execute("SELECT * FROM videos WHERE id = ?", (id,))
     video = dict(cursor.fetchone())
+    thumbnail_url = video["thumbnail_url"].replace("%{width}", "640").replace("%{height}", "360")
     return render_template_string("""
     {% extends "base.html" %}
     {% block title %}Video{% endblock %}
@@ -503,6 +502,9 @@ def video(id):
         <div class="box tall">
             <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
             <div>{{ video['title'] }}</div>
+            <div>
+                <img src="{{ thumbnail_url }}" alt="{{ video['title'] }}">
+            </div>
             <div>{{ video }}</div>
         </div>
         <div class="box tall">
@@ -512,7 +514,7 @@ def video(id):
             {% endfor %}
         </div>
     </main>
-    {% endblock %}""", video=video, sequences=sequences)
+    {% endblock %}""", video=video, sequences=sequences, thumbnail_url=thumbnail_url)
 
 
 @app.route("/videos")
@@ -618,6 +620,11 @@ def videos():
             <div><a href="{{ url_for('video', id=video['id']) }}">View</a></div>
             <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
             <div>{{ video['title'] }}</div>
+            <div>
+                <a href="{{ video['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}">
+                    <img height=150 src="{{ video['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}" alt="{{ video['title'] }}">
+                </a>
+            </div>
             <div>{{ video }}</div>
         </div>
         {% endfor %}
@@ -703,8 +710,10 @@ def downloads_sequence(sequence_id):
                     <span class="green">{{ worker.lock_status }}</span>  - {{ worker.lock_filename }} ({{ worker.pid }})
                 </div>
                 {% endif %}
-
             {% endfor %}
+            {% if worker_table | length == 0 %}
+            <div class="error">No workers found</div>
+            {% endif %}
             </div>
             {% for portion in sequence['portions'] %}
             <div class="box">
@@ -718,14 +727,9 @@ def downloads_sequence(sequence_id):
                         {% if downloaded(portionurl.id) %}
                         <div>Status: <span class="green">complete ({{ portionurl.id }})</span></div>
                         {% elif partially_downloaded(portionurl.id) %}
-                        <div>Status: <span class="">downloading ({{ portionurl.id }})</span></div>
+                        <div>Status: <span class="yellow">downloading ({{ portionurl.id }})</span></div>
                         {% else %}
                         <div>Status: <span class="red">pending ({{ portionurl.id }})</span></div>
-                        {% endif %}
-                        {% if portionurl.download_status() == 'paused' %}
-                        <form action="{{ url_for('set_download_status', download_id=portionurl.download_id()) }}" method="POST">
-                            <button type="submit" name="status" value="pending">Download</button>
-                        </form>
                         {% endif %}
 
                         <div>
@@ -752,6 +756,178 @@ def downloads_sequence(sequence_id):
         </div>
     </main>
     {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded, worker_table=worker_table, downloaded=downloaded, partially_downloaded=partially_downloaded)
+
+
+@app.route("/get_synced_videos_html/<video_id>/<offset>")
+def get_synced_videos_html(video_id, offset):
+    offset = int(offset)
+    videos = get_synced_videos(video_id, offset)
+    cursor = videos_connection.execute("SELECT created_at_epoch FROM videos WHERE id = ?", (video_id,))
+    video_created_at_epoch = cursor.fetchone()[0]
+    video_created_at_epoch = int(video_created_at_epoch)
+    epoch = video_created_at_epoch + offset
+
+    return render_template_string("""
+    {% for video in videos %}
+    <div>
+        <a onclick="load_sync_embed('{{ video.id }}', {{ int(epoch) - int(video.created_at_epoch) }})">
+            {{ video.id }} @ {{ (int(epoch) - int(video.created_at_epoch)) | hhmmss}}</a> - {{ video.user_name }}
+    </div>
+    {% endfor %}""", videos=videos, epoch=epoch, int=int)
+
+@app.route("/sync_video_on_video")
+def sync_video_on_video():
+    video_id = request.args.get("video_id")
+    cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
+    video = dict(cursor.fetchone())
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Sync Video on Video (Create Portion){% endblock %}
+    {% block head %}<script src= "https://player.twitch.tv/js/embed/v1.js"></script>{% endblock %}
+    {% block body %}
+    <style>
+    a { cursor: pointer; }
+    .embeds {
+        width: 100%;
+        border: solid 1px black;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+    </style>
+    <main class="mono tall">
+        {% include "nav.html" %}
+        <h1>Sync Video on Video (Create Portion)</h1>
+        <div class="wide embeds">
+            <div id="twitch-embed"></div>
+            <div id="sync-embed"></div>
+        </div>
+        <div class="box tall">
+            <h3>Sync Video on Video (Create Portion)</h3>
+            <form>
+                <input type="text" name="title" placeholder="title">
+                <input type="text" name="start" placeholder="start">
+                <input type="text" name="end" placeholder="end">
+            </form>
+            <div class="wide">
+                <button onclick="set_start()">Set Start</button>
+                <button onclick="set_end()">Set End</button>
+            </div>
+            <div>
+                <h4>POV’s - Updated on player time update</h4>
+                <div>Sync Offset: <span id="sync_offset">NULL</span></div>
+                <div id="synced_videos_list">NULL</div>
+            </div>
+            <div>Download Chat</div>
+            <div>{{ video }}</div>
+        </div>
+    </main>
+    <script>
+        function log(string_or_object) {
+            if (typeof string_or_object === "string") {
+                console.log(`[view_create_portion] ${string_or_object}`);
+            } else {
+                const object_string = JSON.stringify(string_or_object, null, 2);
+                console.log(`[view_create_portion] ${object_string}`);
+            }
+        }
+        console.log("Hello from view_create_portion");
+        var options = {
+            height: 360,
+            width: "100%",
+            video: "{{ video['id'] }}",
+            autoplay: false
+        };
+        var player = new Twitch.Player("twitch-embed", options);
+        var sync_player = null;
+        // player.setVolume(0.5);
+        function hhmmss(seconds_integer) {
+            var hours = Math.floor(seconds_integer / 3600);
+            var minutes = Math.floor((seconds_integer - (hours * 3600)) / 60);
+            var seconds = seconds_integer - (hours * 3600) - (minutes * 60);
+            // zero pad if required
+            if (hours < 10) { hours = "0" + hours; }
+            if (minutes < 10) { minutes = "0" + minutes; }
+            if (seconds < 10) { seconds = "0" + seconds; }
+            return hours + "h" + minutes + "m" + seconds + "s";
+        }
+        function update_synced_videos_list () {
+            const offset = player.getCurrentTime();
+            const video_id = "{{ video['id'] }}";
+            const offset_integer = Math.floor(offset);
+            const url = "/get_synced_videos_html/" + video_id + "/" + offset_integer;
+            fetch(url).
+                then(response => response.text()).
+                then(html => {
+                    document.getElementById("synced_videos_list").innerHTML = html;
+                });
+            document.getElementById("sync_offset").innerHTML = hhmmss(offset_integer);
+
+
+            log("update_synced_videos_list", offset_integer);
+        }
+        function load_sync_embed(video_id, offset) {
+            const listener = () => {
+                sync_player.removeEventListener(Twitch.Player.PLAY, listener);
+                sync_player.seek(offset);
+            };
+            if (sync_player === null) {
+                const options = {
+                    height: 360,
+                    width: "100%",
+                    video: video_id,
+                    autoplay: true,
+                    time: '0h0m0s' // this has to be 0. suppose initially it is 08h00m00s and we switch to a video that is 04h00m00s, the embed thinks `playback has ended` and errors
+                };
+                sync_player = new Twitch.Player("sync-embed", options);
+                sync_player.addEventListener(Twitch.Player.PLAY, listener);
+            } else {
+                sync_player.addEventListener(Twitch.Player.PLAY, listener);
+                sync_player.setVideo(video_id);
+            }
+        }
+        player.addEventListener(Twitch.Player.SEEK, function() {
+            update_synced_videos_list();
+        });
+        player.addEventListener(Twitch.Player.PAUSE, function() {
+            update_synced_videos_list();
+        });
+        function set_start() {
+            const offset = player.getCurrentTime();
+            document.querySelector("input[name=start]").value = Math.floor(offset);
+        }
+        function set_end() {
+            const offset = player.getCurrentTime();
+            document.querySelector("input[name=end]").value = Math.floor(offset);
+        }
+            
+        
+    </script>
+    {% endblock %}""", video=video)
+
+@app.route("/info")
+def info():
+    import shutil
+    total, used, free = shutil.disk_usage("/")
+
+    # Convert bytes to GB
+    one_gb = 1024 * 1024 * 1024
+    total_gb = int(total / one_gb)
+    used_gb = int(used / one_gb)
+    free_gb = int(free / one_gb)
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Info{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Info</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+            <div>Total: {{ total_gb }} GB</div>
+            <div>Used: {{ used_gb }} GB</div>
+            <div>Free: {{ free_gb }} GB</div>
+        </div>
+    </main>
+    {% endblock %}""", total_gb=total_gb, used_gb=used_gb, free_gb=free_gb)
 
 
 @app.route("/static", methods=["GET"])

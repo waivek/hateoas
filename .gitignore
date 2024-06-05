@@ -1,4 +1,5 @@
 .direnv/
 data/*.db
+data/
 __pycache__/
 static/downloads/
