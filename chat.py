@@ -15,6 +15,7 @@ from waivek import write, read, rel2abs
 from waivek import Code
 timer = Timer()
 from waivek import ic, ib
+from dbutils import Connection
 ic, ib, Code
 
 class Config:
@@ -231,8 +232,11 @@ def get_duration(video_id):
     if duration_D.get(video_id):
         video_duration = duration_D[video_id]
     else:
-        video_duration = float(query(video_id)["duration_seconds"])
-        print(Code.RED + f", '{video_id}': {video_duration}")
+        # video_duration = float(query(video_id)["duration_seconds"])
+        connection = Connection("data/videos.db")
+        cursor = connection.execute("SELECT duration FROM videos WHERE id = ?;", (video_id,))
+        video_duration = int(cursor.fetchone()[0])
+        # print(Code.RED + f", '{video_id}': {video_duration}")
     return video_duration
 
 def print_chat_async_oneliner(blocks, duration, request_count, start_time):
@@ -259,6 +263,7 @@ def chat_sync_dictionaries(video_id):
     comments = []
     while True:
         D = make_kraken_request(url)
+        assert D
         comments = comments + D["comments"]
         if not D.get("_next"):
             break
@@ -280,9 +285,10 @@ def chat_async_dictionaries(video_id, duration=None):
     from aiohttp.client_exceptions import ClientConnectorError
     import aiohttp
     import asyncio
-    if platform.system() == 'Windows':
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    start_time = time()
+    # TODO: Ensure this works on windows
+    # if platform.system() == 'Windows':
+    #     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    start_time = time.time()
     BATCH_REQUEST_COUNT = 20
     # BATCH_REQUEST_COUNT = 25
     # BATCH_REQUEST_COUNT = 100
@@ -295,11 +301,13 @@ def chat_async_dictionaries(video_id, duration=None):
     # kraken_headers = { "Client-ID" : "4sx4524hdy15htgc37ob6fi3gat4rl", "Accept" : "application/vnd.twitchtv.v5+json" }
     kraken_headers = { "Client-ID" : "kimne78kx3ncx6brgo4mv6wki5h1ko", "Accept" : "application/vnd.twitchtv.v5+json" }
     dictionaries = asyncio.run(get_urls(urls, asyncio, aiohttp, headers=kraken_headers))
+    blocks = None
     try:
         blocks = [ Block(D, offset) for D,offset in zip(dictionaries,offsets) ]
     except Exception as e:
         error = e
         breakpoint()
+    assert blocks
     blocks = update_status(blocks)
     request_count = len(urls)
     print_chat_async_oneliner(blocks, video_duration, request_count, start_time)
@@ -378,6 +386,7 @@ def chat_async_dictionaries(video_id, duration=None):
             block_acc = stitch(block_acc, block)
         except Exception as e:
             missing_comment_D = blocks[i].unique_end_comment
+            assert missing_comment_D
             missing_id = missing_comment_D["_id"]
             missing_content_offset_seconds = missing_comment_D["content_offset_seconds"]
             error = e
@@ -641,6 +650,7 @@ def chat_gql_sync_ip_rotation_offset(video_id):
     path = f"data/offsets/{video_id}.json"
     if os.path.exists(rel2abs(path)):
         offsets = read(path)
+        print("[EXISTS] " + (Code.LIGHTCYAN_EX + path))
         return offsets
     import requests
     from requests_ip_rotator import ApiGateway
@@ -677,10 +687,12 @@ def chat_gql_sync_ip_rotation_offset(video_id):
         D = get_data_D(video_id, offset)
         data_string = json.dumps(D)
         attempt_count = 3
+        response = None
         while attempt_count > 0:
             try:
                 response = session.post(url, data_string)
-            except ConnectionError:
+            except Exception as e:
+                error = e
                 attempt_count = attempt_count - 1
                 print("MaxRetryError, Retrying in 5 seconds")
                 time.sleep(5)
@@ -689,6 +701,7 @@ def chat_gql_sync_ip_rotation_offset(video_id):
                 break
         request_count = request_count + 1
 
+        assert response
         D = response.json()
         D = D['data']['video']['comments']
         print(get_D_oneliner(D))
@@ -713,9 +726,12 @@ def chat_gql_sync_ip_rotation_offset(video_id):
     ic(request_count)
     offsets = [ dictionary['offset'] for dictionary in dictionaries ]
     write(offsets, path)
+    print("[WRITE] " + (Code.LIGHTCYAN_EX + path))
     write_progress_json(duration, duration, video_id, "Completed")
+    print("[WRITE] " + (Code.LIGHTCYAN_EX + path))
 
     gateway.shutdown()
+    return offsets
 
 
 def generate_token():
@@ -797,6 +813,7 @@ def generate_token():
             # print("TOKEN NOT FOUND")
 
 
+    assert selected_config
     selected_config.print()
     breakpoint()
     driver.close()

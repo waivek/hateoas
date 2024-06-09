@@ -10,6 +10,8 @@ from dbutils import Connection
 from Types import Sequence, Portion, PortionUrl
 from portionurl_to_download_path import downloaded, partially_downloaded
 from typing import TypedDict
+from waivek import read, rel2abs
+import os.path
 
 
 app = Flask(__name__)
@@ -780,129 +782,11 @@ def sync_video_on_video():
     video_id = request.args.get("video_id")
     cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
     video = dict(cursor.fetchone())
-    return render_template_string("""
-    {% extends "base.html" %}
-    {% block title %}Sync Video on Video (Create Portion){% endblock %}
-    {% block head %}<script src= "https://player.twitch.tv/js/embed/v1.js"></script>{% endblock %}
-    {% block body %}
-    <style>
-    a { cursor: pointer; }
-    .embeds {
-        width: 100%;
-        border: solid 1px black;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-    }
-    </style>
-    <main class="mono tall">
-        {% include "nav.html" %}
-        <h1>Sync Video on Video (Create Portion)</h1>
-        <div class="wide embeds">
-            <div id="twitch-embed"></div>
-            <div id="sync-embed"></div>
-        </div>
-        <div class="box tall">
-            <h3>Sync Video on Video (Create Portion)</h3>
-            <form>
-                <input type="text" name="title" placeholder="title">
-                <input type="text" name="start" placeholder="start">
-                <input type="text" name="end" placeholder="end">
-            </form>
-            <div class="wide">
-                <button onclick="set_start()">Set Start</button>
-                <button onclick="set_end()">Set End</button>
-            </div>
-            <div>
-                <h4>POV’s - Updated on player time update</h4>
-                <div>Sync Offset: <span id="sync_offset">NULL</span></div>
-                <div id="synced_videos_list">NULL</div>
-            </div>
-            <div>Download Chat</div>
-            <div>{{ video }}</div>
-        </div>
-    </main>
-    <script>
-        function log(string_or_object) {
-            if (typeof string_or_object === "string") {
-                console.log(`[view_create_portion] ${string_or_object}`);
-            } else {
-                const object_string = JSON.stringify(string_or_object, null, 2);
-                console.log(`[view_create_portion] ${object_string}`);
-            }
-        }
-        console.log("Hello from view_create_portion");
-        var options = {
-            height: 360,
-            width: "100%",
-            video: "{{ video['id'] }}",
-            autoplay: false
-        };
-        var player = new Twitch.Player("twitch-embed", options);
-        var sync_player = null;
-        // player.setVolume(0.5);
-        function hhmmss(seconds_integer) {
-            var hours = Math.floor(seconds_integer / 3600);
-            var minutes = Math.floor((seconds_integer - (hours * 3600)) / 60);
-            var seconds = seconds_integer - (hours * 3600) - (minutes * 60);
-            // zero pad if required
-            if (hours < 10) { hours = "0" + hours; }
-            if (minutes < 10) { minutes = "0" + minutes; }
-            if (seconds < 10) { seconds = "0" + seconds; }
-            return hours + "h" + minutes + "m" + seconds + "s";
-        }
-        function update_synced_videos_list () {
-            const offset = player.getCurrentTime();
-            const video_id = "{{ video['id'] }}";
-            const offset_integer = Math.floor(offset);
-            const url = "/get_synced_videos_html/" + video_id + "/" + offset_integer;
-            fetch(url).
-                then(response => response.text()).
-                then(html => {
-                    document.getElementById("synced_videos_list").innerHTML = html;
-                });
-            document.getElementById("sync_offset").innerHTML = hhmmss(offset_integer);
-
-
-            log("update_synced_videos_list", offset_integer);
-        }
-        function load_sync_embed(video_id, offset) {
-            const listener = () => {
-                sync_player.removeEventListener(Twitch.Player.PLAY, listener);
-                sync_player.seek(offset);
-            };
-            if (sync_player === null) {
-                const options = {
-                    height: 360,
-                    width: "100%",
-                    video: video_id,
-                    autoplay: true,
-                    time: '0h0m0s' // this has to be 0. suppose initially it is 08h00m00s and we switch to a video that is 04h00m00s, the embed thinks `playback has ended` and errors
-                };
-                sync_player = new Twitch.Player("sync-embed", options);
-                sync_player.addEventListener(Twitch.Player.PLAY, listener);
-            } else {
-                sync_player.addEventListener(Twitch.Player.PLAY, listener);
-                sync_player.setVideo(video_id);
-            }
-        }
-        player.addEventListener(Twitch.Player.SEEK, function() {
-            update_synced_videos_list();
-        });
-        player.addEventListener(Twitch.Player.PAUSE, function() {
-            update_synced_videos_list();
-        });
-        function set_start() {
-            const offset = player.getCurrentTime();
-            document.querySelector("input[name=start]").value = Math.floor(offset);
-        }
-        function set_end() {
-            const offset = player.getCurrentTime();
-            document.querySelector("input[name=end]").value = Math.floor(offset);
-        }
-            
-        
-    </script>
-    {% endblock %}""", video=video)
+    offsets = []
+    offsets_path = rel2abs(f"data/offsets/{video_id}.json")
+    if os.path.exists(offsets_path):
+        offsets = read(offsets_path)
+    return render_template("sync_video_to_video.html", video=video, offsets=offsets)
 
 @app.route("/info")
 def info():
