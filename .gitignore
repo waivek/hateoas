@@ -1,6 +1,8 @@
 .direnv/
-data/*.db
-data/
 __pycache__/
 static/downloads/
 *.env
+
+data/*
+!data/
+!.gitkeep
