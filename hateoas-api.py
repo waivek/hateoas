@@ -843,7 +843,19 @@ def staticfiles():
     </main>
     {% endblock %}""", files_recursive=files_recursive, links_recursive=links_recursive, zip=zip)
 
+def readstring(path):
+    if not os.path.abspath(path):
+        path = rel2abs(path)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File not found: {path}")
+    with open(path, "rb") as f:
+        string = f.read().decode("utf-8")
+    return string
+
 def main():
+    sql_filename = rel2abs("main.sql")
+    sql_script = readstring(sql_filename)
+    connection.executescript(sql_script)
     app.run(host='0.0.0.0', port=8000, debug=True, use_reloader=True)
 
 if __name__ == "__main__":

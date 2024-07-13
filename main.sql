@@ -1,12 +1,12 @@
 BEGIN TRANSACTION;
 
-CREATE TABLE sequences (
+CREATE TABLE IF NOT EXISTS sequences (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT NOT NULL
 ) STRICT;
 
-CREATE TABLE portions (
+CREATE TABLE IF NOT EXISTS portions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     sequence_id INTEGER NOT NULL,
     title TEXT NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE portions (
     FOREIGN KEY (sequence_id) REFERENCES sequences (id) ON DELETE CASCADE
 ) STRICT;
 
-CREATE TABLE portionurls (
+CREATE TABLE IF NOT EXISTS portionurls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     portion_id INTEGER NOT NULL,
     url TEXT NOT NULL,
@@ -27,7 +27,7 @@ CREATE TABLE portionurls (
     UNIQUE (portion_id, url)
 ) STRICT;
 
-CREATE TABLE downloads (
+CREATE TABLE IF NOT EXISTS downloads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     portionurl_id INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'paused' CHECK (status IN ('paused', 'pending', 'downloading', 'complete', 'failed')),
@@ -37,7 +37,7 @@ CREATE TABLE downloads (
     FOREIGN KEY (portionurl_id) REFERENCES portionurls (id) ON DELETE CASCADE
 ) STRICT;
 
-CREATE TABLE download_queue (
+CREATE TABLE IF NOT EXISTS download_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     portionurl_id INTEGER NOT NULL UNIQUE,
     FOREIGN KEY (portionurl_id) REFERENCES portionurls (id) ON DELETE CASCADE

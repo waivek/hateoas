@@ -12,3 +12,6 @@ python-slugify
 # chat.py
 requests
 requests_ip_rotator
+
+# download_worker
+psutil
