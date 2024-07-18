@@ -184,6 +184,8 @@ def main():
         log("Exiting. (tables do not exist)")
 
         sys.exit(0)
+    if not os.path.exists(downloads_folder()):
+        os.makedirs(downloads_folder())
     release_stale_global_colored_lock()
     if global_lock_exists():
         # Another instance is running.

@@ -62,6 +62,9 @@ def download_portionurl(portionurl_id):
         print(Code.RED + f"Failed to download portionurl {portionurl_id}, exit code: {exit_code}", flush=True)
     return exit_code
 
+def ensure():
+    pass
+
 def main():
     portionurl_id = 15
     exit_code = download_portionurl(portionurl_id)

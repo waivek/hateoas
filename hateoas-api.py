@@ -455,19 +455,19 @@ def form_create_portion():
                     <!-- readonly: sequence_id, user_id -->
                     <!-- required: all -->
                     <label>sequence_id</label>
-                    <input name="sequence_id" value="{{ sequence_id }}" readonly>
+                    <input type="text" name="sequence_id" value="{{ sequence_id }}" readonly>
 
                     <label>user_id</label>
-                    <input name="user_id" value="{{ video['user_id'] }}" readonly>
+                    <input type="text" name="user_id" value="{{ video['user_id'] }}" readonly>
 
                     <label>created_at_epoch</label>
-                    <input name="created_at_epoch" value="{{ video['created_at_epoch'] }}" readonly>
+                    <input type="text" name="created_at_epoch" value="{{ video['created_at_epoch'] }}" readonly>
 
                     <label>url</label>
-                    <input name="url" value="{{ video['url'] }}" readonly>
+                    <input type="text" name="url" value="{{ video['url'] }}" readonly>
 
                     <label>video_id</label>
-                    <input name="video_id" value="{{ video['id'] }}" readonly>
+                    <input type="text" name="video_id" value="{{ video['id'] }}" readonly>
 
                 </div>
 
@@ -514,6 +514,10 @@ def video(id):
             {% for sequence in sequences %}
             <div><a href="{{ url_for('form_create_portion', sequence_id=sequence['id'], video_id=video['id']) }}">Add to {{ sequence['name'] }}</a></div>
             {% endfor %}
+            {% if not sequences %}
+            <div>No sequences found, so we cannot create a portion</div>
+            <div><a href="{{ url_for('view_sequences') }}">Create a sequence</a></div>
+            {% endif %}
         </div>
     </main>
     {% endblock %}""", video=video, sequences=sequences, thumbnail_url=thumbnail_url)
@@ -521,6 +525,22 @@ def video(id):
 
 @app.route("/videos")
 def videos():
+    # check if `videos` table exists. if it doesn’t return early with a HTML error message
+    cursor = videos_connection.cursor()
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='videos'")
+    if not cursor.fetchone():
+        return render_template_string("""
+        {% extends "base.html" %}
+        {% block title %}Videos{% endblock %}
+        {% block body %}
+        <main class="mono tall">
+            <h1>Video</h1>
+            {% include "nav.html" %}
+            <div class="box tall">
+                <div class="error">Table `videos` not found in `videos.db`</div>
+            </div>
+        </main>
+        {% endblock %}""")
     start_date = request.args.get("start_date", None)
     end_date = request.args.get("end_date", None)
     user_id = request.args.get("user_id", None)
@@ -645,7 +665,6 @@ def downloads():
     cursor = connection.execute("SELECT * FROM sequences")
     sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
 
-    sequences[0].portions
     return render_template_string("""
     {% extends "base.html" %}
     {% block title %}Downloads{% endblock %}

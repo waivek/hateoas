@@ -34,6 +34,10 @@ a { cursor: pointer; }
             <input type="text" name="start" placeholder="start">
             <input type="text" name="end" placeholder="end">
         </form>
+        <div class="wide">
+            <button onclick="set_start()">Set Start</button>
+            <button onclick="set_end()">Set End</button>
+        </div>
         {% if offsets %}
         <!-- max width: 200ch, overflow = ellipsis -->
         <div>
@@ -43,12 +47,11 @@ a { cursor: pointer; }
             {% endif %}
         </div>
         {% else %}
-        <div>No offsets found</div>
-        {% endif %}
-        <div class="wide">
-            <button onclick="set_start()">Set Start</button>
-            <button onclick="set_end()">Set End</button>
+        <div class="error">No offsets found, download offsets to see Chart</div>
+        <div>
+            <button>Add Video {{ video['id'] }} to Chat Download Queue</button>
         </div>
+        {% endif %}
         <div>
             <h4>POV’s - Updated on player time update</h4>
             <div>Sync Offset: <span id="sync_offset">NULL</span></div>

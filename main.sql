@@ -27,6 +27,11 @@ CREATE TABLE IF NOT EXISTS portionurls (
     UNIQUE (portion_id, url)
 ) STRICT;
 
+CREATE TABLE IF NOT EXISTS queue_chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS downloads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     portionurl_id INTEGER NOT NULL,
