@@ -36,6 +36,23 @@ def get_worker_info():
         table.append({ 'lock_filename': lock_filename, 'pid': pid, 'lock_status': lock_status })
     return table
 
+def get_chat_worker_info():
+    lock_dir = '/tmp'
+    lock_filename_prefix = 'chat_download_worker_'
+    lock_filename_suffix = '.lock'
+    lock_filenames = [f for f in os.listdir(lock_dir) if f.startswith(lock_filename_prefix) and f.endswith(lock_filename_suffix)]
+    pids_from_lock_files = []
+    for lock_filename in lock_filenames:
+        lock_path = os.path.join(lock_dir, lock_filename)
+        with open(lock_path, 'r') as f:
+            pid = int(f.read())
+            pids_from_lock_files.append(pid)
+    table = []
+    for lock_filename, pid in zip(lock_filenames, pids_from_lock_files):
+        lock_status = 'stale' if not psutil.pid_exists(pid) else 'active'
+        table.append({ 'lock_filename': lock_filename, 'pid': pid, 'lock_status': lock_status })
+    return table
+
 if __name__ == '__main__':
     print(get_worker_info())
     # print(get_portionurl_lock_files())

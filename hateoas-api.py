@@ -658,6 +658,45 @@ def videos():
     </main>
     {% endblock %}""", videos=videos, pagination=pagination)
 
+@app.route("/chat_downloads")
+def chat_downloads():
+    from get_worker_info import get_chat_worker_info
+    cursor = connection.execute("SELECT id, video_id FROM queue_chat")
+    queue_chat = [dict(row) for row in cursor.fetchall()]
+    worker_table = get_chat_worker_info()
+
+
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Chat Downloads{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Chat Downloads</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+
+            {% for worker in worker_table %}
+                {% if worker.lock_status == 'stale' %}
+                <div>
+                    <span class="red">{{ worker.lock_status }}</span>  - {{ worker.lock_filename }} ({{ worker.pid }}) (lock_file exists but PID doesn’t)
+                </div>
+                {% else %}
+                <div>
+                    <span class="green">{{ worker.lock_status }}</span>  - {{ worker.lock_filename }} ({{ worker.pid }})
+                </div>
+                {% endif %}
+            {% endfor %}
+            {% if worker_table | length == 0 %}
+            <div class="error">No workers found</div>
+            {% endif %}
+            {% for row in queue_chat %}
+            <div>
+                {{ row['id'] }} - {{ row['video_id'] }}
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+    {% endblock %}""", queue_chat=queue_chat, worker_table=worker_table)
 
 
 @app.route("/downloads")
@@ -689,7 +728,7 @@ def downloads():
                     </div>
                     <div class="gray">{{ portion.pretty() }}</div>
                 </li>
-                {% endfor %}
+                {% endfor %}:
             </ol>
             {% endif %}
             <div><a href="{{ url_for('downloads_sequence', sequence_id=sequence['id']) }}">Download {{ sequence['name'] }}</a></div>
@@ -796,8 +835,16 @@ def get_synced_videos_html(video_id, offset):
     </div>
     {% endfor %}""", videos=videos, epoch=epoch, int=int)
 
-@app.route("/sync_video_on_video")
-def sync_video_on_video():
+@app.route("/add_video_to_chat_download_queue/<video_id>", methods=["POST"])
+def add_video_to_chat_download_queue(video_id):
+    # CREATE TABLE IF NOT EXISTS queue_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, video_id TEXT NOT NULL);
+    cursor = connection.cursor()
+    cursor.execute("INSERT INTO queue_chat (video_id) VALUES (?)", (video_id,))
+    connection.commit()
+    return redirect(request.referrer)
+
+@app.route("/sync_video_to_video")
+def sync_video_to_video():
     video_id = request.args.get("video_id")
     cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
     video = dict(cursor.fetchone())
@@ -805,7 +852,10 @@ def sync_video_on_video():
     offsets_path = rel2abs(f"data/offsets/{video_id}.json")
     if os.path.exists(offsets_path):
         offsets = read(offsets_path)
-    return render_template("sync_video_to_video.html", video=video, offsets=offsets)
+    cursor = connection.execute("SELECT 1 FROM queue_chat WHERE video_id = ?", (video_id,))
+    video_id_in_chat_download_queue = cursor.fetchone() is not None
+
+    return render_template("sync_video_to_video.html", video=video, offsets=offsets, video_id_in_chat_download_queue=video_id_in_chat_download_queue)
 
 @app.route("/info")
 def info():

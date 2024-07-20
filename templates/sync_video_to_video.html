@@ -49,7 +49,15 @@ a { cursor: pointer; }
         {% else %}
         <div class="error">No offsets found, download offsets to see Chart</div>
         <div>
-            <button>Add Video {{ video['id'] }} to Chat Download Queue</button>
+            {# <button>Add Video {{ video['id'] }} to Chat Download Queue</button> #}
+            {% if video_id_in_chat_download_queue %}
+            <div>Video is in Chat Download Queue, Go to <a href="{{ url_for('chat_downloads') }}">Chat Download Queue</a></div>
+            {% else %}
+            {# <form action="/add_video_to_chat_download_queue/{{ video['id'] }}" method="post"> #}
+            <form action="{{ url_for('add_video_to_chat_download_queue', video_id=video['id']) }}" method="post">
+                <button>Add Video to Chat Download Queue</button>
+            </form>
+            {% endif %}
         </div>
         {% endif %}
         <div>

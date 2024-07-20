@@ -16,6 +16,8 @@ from waivek import Code
 timer = Timer()
 from waivek import ic, ib
 from dbutils import Connection
+import requests
+from requests_ip_rotator import ApiGateway
 ic, ib, Code
 
 class Config:
@@ -446,7 +448,8 @@ def print_args():
 def get_video_duration_by_id_from_database(video_id):
     from waivek import db_init
     from waivek import Timestamp
-    cursor, connection = db_init("data/videos.db")
+    connection = db_init("data/videos.db")
+    cursor = connection.cursor()
     cursor.execute("SELECT duration FROM videos WHERE id = ?;", (video_id,))
     duration_int, = cursor.fetchone()
     duration_string = str(duration_int)
@@ -534,14 +537,29 @@ def request_one_D(video_id, cursor_or_offset):
     # response = requests.post('https://gql.twitch.tv/gql', headers=headers, data=data_string)
     return response.json()
 
-def get_D_oneliner(D):
+def get_D_oneliner(D, duration=None):
     from waivek import truncate
+    from waivek import Timestamp
+
     first_offset = D['edges'][0]['node']['contentOffsetSeconds']
     last_offset = D['edges'][-1]['node']['contentOffsetSeconds']
     edge_count = len(D['edges'])
     has_next_page = D['pageInfo']['hasNextPage'] 
     cursor = truncate(D['edges'][-1]['cursor'], 80)
-    string = f"[{first_offset} - {last_offset}] ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
+    first_offset_str = Timestamp(first_offset).timestamp
+    last_offset_str = Timestamp(last_offset).timestamp
+    green_bg_black_fg_ansi = '\x1b[42;30m'
+    green_fg_ansi = '\x1b[32m'
+    reset_ansi = '\x1b[0m'
+    blue_fg_ansi = '\x1b[34m'
+    if duration:
+        pct = first_offset / duration * 100
+        pct_str = f"{pct:.2f}%".rjust(len("100.00%"))
+        duration_str = Timestamp(duration).hh_mm_ss
+        # string = f"{pct:.2f}% [{first_offset_str}  {last_offset_str}] ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
+        string = f"{green_fg_ansi}{pct_str}{reset_ansi} [{first_offset_str} - {last_offset_str}] of {blue_fg_ansi}{duration_str}{reset_ansi} ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
+    else:
+        string = f"[{first_offset_str} - {last_offset_str}] ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
     return string
 
 def get_integrity_token():
@@ -619,11 +637,6 @@ def chat_gql_sync(video_id):
     write(offsets, path)
     return offsets
 
-def do_socket_emit():
-    for i in range(10):
-        time.sleep(1)
-        message =  f"Seconds Elapsed: {i}"
-
 def read_progress_json(video_id):
     data_path = rel2abs(f"data/chat_download_progress/{video_id}.json")
     if not os.path.exists(data_path):
@@ -648,14 +661,13 @@ def write_progress_json(seconds_completed, total_seconds, video_id, status):
 def chat_gql_sync_ip_rotation_offset(video_id):
     # offset < duration is bad practice but no choice for non cursor fetch
     path = f"data/offsets/{video_id}.json"
+    temp_path = f"data/offsets/temp-{video_id}.json"
+
     if os.path.exists(rel2abs(path)):
         offsets = read(path)
         print("[EXISTS] " + (Code.LIGHTCYAN_EX + path))
         return offsets
-    import requests
-    from requests_ip_rotator import ApiGateway
     duration = get_video_duration_by_id_from_database(video_id)
-    write_progress_json(0, duration, video_id, "Initializing")
     domain = "https://gql.twitch.tv"
     url = "https://gql.twitch.tv/gql"
     gateway = ApiGateway(domain)
@@ -704,10 +716,9 @@ def chat_gql_sync_ip_rotation_offset(video_id):
         assert response
         D = response.json()
         D = D['data']['video']['comments']
-        print(get_D_oneliner(D))
+        print(get_D_oneliner(D, duration))
         first_offset = D['edges'][0]['node']['contentOffsetSeconds']
         last_offset = D['edges'][-1]['node']['contentOffsetSeconds']
-        write_progress_json(last_offset, duration, video_id, "On Going")
         has_next_page = D['pageInfo']['hasNextPage'] 
         # HACK FOR SMALL WINDOWS TO PREVENT REPETITION, ALSO CAUSED BY GOING BY OFFSET INSTEAD OF CURSOR
         if offset >= last_offset:
@@ -838,6 +849,7 @@ def main():
     video_id = "2068824410"
 
     video_id = "2120649324"
+    video_id = "2199695545"
     chat_gql_sync_ip_rotation_offset(video_id)
     return
     # path_to_delete = rel2abs(f"data/offsets/{video_id}.json")

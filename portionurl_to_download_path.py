@@ -14,4 +14,3 @@ def downloaded(portionurl_id):
 
 def downloads_folder():
     return rel2abs("static/downloads")
-
