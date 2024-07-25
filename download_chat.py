@@ -3,7 +3,7 @@ import json
 import time
 
 from waivek import rel2abs, read, write, Code, ic, truncate, Timestamp
-from download_worker_utils import get_chat_downloads_folder
+from worker_utils import get_chat_downloads_folder
 
 from requests_ip_rotator import ApiGateway
 import requests
