@@ -1,15 +1,20 @@
 import os
 import json
 import time
+import gzip
 
-from waivek import rel2abs, read, write, Code, ic, truncate, Timestamp
-from worker_utils import get_chat_downloads_folder
+from waivek import rel2abs, read, write, Code, ic, truncate, Timestamp, Timer
+timer = Timer()
+from worker_utils import has_chat_part_file, is_chat_downloaded, get_chat_downloads_folder
 
 from requests_ip_rotator import ApiGateway
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.exceptions import MaxRetryError, ConnectionError
 from urllib3.util.retry import Retry
+from get_gateway import get_gateway_with_caching
+
+from chat_part_file_utils import append_data_to_part_file, get_last_offset_from_part_file, part_file_to_json
 
 
 def get_D_oneliner(D, duration=None):
@@ -30,9 +35,9 @@ def get_D_oneliner(D, duration=None):
         pct_str = f"{pct:.2f}%".rjust(len("100.00%"))
         duration_str = Timestamp(duration).hh_mm_ss
         # string = f"{pct:.2f}% [{first_offset_str}  {last_offset_str}] ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
-        string = f"{green_fg_ansi}{pct_str}{reset_ansi} [{first_offset_str} - {last_offset_str}] of {blue_fg_ansi}{duration_str}{reset_ansi} ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
+        string = f"{green_fg_ansi}{pct_str}{reset_ansi} [{first_offset_str} - {last_offset_str}] of {blue_fg_ansi}{duration_str}{reset_ansi} ({edge_count} Edges) hasNextPage:{has_next_page}"
     else:
-        string = f"[{first_offset_str} - {last_offset_str}] ({edge_count} Edges) hasNextPage:{has_next_page} cursor:{cursor}"
+        string = f"[{first_offset_str} - {last_offset_str}] ({edge_count} Edges) hasNextPage:{has_next_page}"
     return string
 
 def get_data_D(video_id, cursor_or_offset):
@@ -71,26 +76,46 @@ def get_video_duration_by_id_from_database(video_id):
     seconds = Timestamp(duration_string).seconds
     return seconds
 
-def chat_gql_sync_ip_rotation_offset(video_id):
-    function_name = "chat_gql_sync_ip_rotation_offset"
+
+
+def chat_gql_sync_ip_rotation_offset_resumable(video_id) -> None:
+    if is_chat_downloaded(video_id):
+        print("[SKIP] " + (Code.LIGHTCYAN_EX + video_id))
+        return
+
+    function_name = "chat_gql_sync_ip_rotation_offset_resumable"
     # offset < duration is bad practice but no choice for non cursor fetch
 
-    path = f"data/offsets/{video_id}.json"
-    temp_path = f"data/offsets/temp-{video_id}.json"
-
     folder = get_chat_downloads_folder()
+    if not os.path.exists(folder):
+        os.makedirs(folder)
     part_path = os.path.join(folder, f"{video_id}.json.part")
-    json_path = os.path.join(folder, f"{video_id}.json")
+    json_zip_path = os.path.join(folder, f"{video_id}.json.gz")
 
-    if os.path.exists(rel2abs(path)):
-        offsets = read(path)
-        print("[EXISTS] " + (Code.LIGHTCYAN_EX + path))
-        return offsets
+    # if has_chat_part_file(video_id) and chat_part_file_has_data(video_id):
+    #     print("[RESUME] " + (Code.LIGHTCYAN_EX + part_path))
+    #     dicts = read(part_path)
+    #     D = dicts[-1]
+    #     offset = D['edges'][-1]['node']['contentOffsetSeconds']
+    # else:
+    #     # init the part file with an empty list
+    #     write([], part_path)
+    #     print("[START] " + (Code.LIGHTCYAN_EX + part_path))
+    #     offset = 0
+
+    if not os.path.exists(part_path) or os.stat(part_path).st_size == 0:
+        with open(part_path, 'w') as f:
+            f.write('')
+        offset = 0
+        print("[START] " + (Code.LIGHTCYAN_EX + part_path))
+    else:
+        offset = get_last_offset_from_part_file(part_path)
+        print("[RESUME] " + (Code.LIGHTCYAN_EX + part_path))
+
     duration = get_video_duration_by_id_from_database(video_id)
     domain = "https://gql.twitch.tv"
     url = "https://gql.twitch.tv/gql"
-    gateway = ApiGateway(domain)
-    endpoints = gateway.start()
+    gateway = get_gateway_with_caching(domain)
     
     retry_strategy = Retry(
         total=5,
@@ -107,10 +132,12 @@ def chat_gql_sync_ip_rotation_offset(video_id):
     session.headers.update(headers)
 
     has_next_page = True
-    offset = 0
-    comments = []
+
+
     request_count = 0
     print(f"[{function_name}] {video_id}")
+
+    # touch {part_path}
     while has_next_page and offset < duration:
         D = get_data_D(video_id, offset)
         data_string = json.dumps(D)
@@ -133,14 +160,42 @@ def chat_gql_sync_ip_rotation_offset(video_id):
         D = response.json()
         D = D['data']['video']['comments']
         print(get_D_oneliner(D, duration))
+        # dicts.append(D)
+        append_data_to_part_file(part_path, D)
+
+
         first_offset = D['edges'][0]['node']['contentOffsetSeconds']
         last_offset = D['edges'][-1]['node']['contentOffsetSeconds']
+        # if last_offset > 600:
+        #     break # for debugging
         has_next_page = D['pageInfo']['hasNextPage'] 
         # HACK FOR SMALL WINDOWS TO PREVENT REPETITION, ALSO CAUSED BY GOING BY OFFSET INSTEAD OF CURSOR
         if offset >= last_offset:
             offset = offset + 1
         else:
             offset = last_offset
+    timer.start("part_file_to_json")
+    L = part_file_to_json(part_path)
+    print("[WRITE] " + (Code.LIGHTCYAN_EX + json_zip_path))
+    timer.print("part_file_to_json")
+    with gzip.open(json_zip_path, 'wt') as f:
+        json.dump(L, f, indent=4)
+    os.remove(part_path)
+    ic(request_count)
+    # gateway.shutdown()
+
+def get_chat_offsets_of_downloaded_video(video_id):
+    if not is_chat_downloaded(video_id):
+        raise Exception(f"Chat not downloaded for {video_id}")
+
+
+    folder = get_chat_downloads_folder()
+    json_path = os.path.join(folder, f"{video_id}.json.gz")
+    comments = []
+    # dicts = read(json_path)
+    with gzip.open(json_path, 'rt') as f:
+        dicts = json.load(f)
+    for D in dicts:
         for edge in D['edges']:
             id = edge['node']['id']
             content_offset = edge['node']['contentOffsetSeconds']
@@ -150,18 +205,21 @@ def chat_gql_sync_ip_rotation_offset(video_id):
     dictionaries = [ {"id": id, "offset": offset} for id, offset in comments ]
     dictionaries.sort(key=lambda x: x['offset'])
     ic(len(dictionaries))
-    ic(request_count)
     offsets = [ dictionary['offset'] for dictionary in dictionaries ]
-    write(offsets, path)
-    print("[WRITE] " + (Code.LIGHTCYAN_EX + path))
-    print("[WRITE] " + (Code.LIGHTCYAN_EX + path))
-
-    gateway.shutdown()
+    print("Done.")
     return offsets
+    # path = f"data/offsets/{video_id}.json"
+    # write(offsets, path)
+    # print("[WRITE] " + (Code.LIGHTCYAN_EX + path))
+
 
 def main():
     video_id = "2199695545"
-    chat_gql_sync_ip_rotation_offset(video_id)
+    # chat_gql_sync_ip_rotation_offset_resumable(video_id)
+    timer.start("get_chat_offsets_of_downloaded_video")
+    offsets = get_chat_offsets_of_downloaded_video(video_id)
+    timer.print("get_chat_offsets_of_downloaded_video")
+
 
 if __name__ == "__main__":
     main()

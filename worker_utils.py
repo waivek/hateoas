@@ -26,5 +26,5 @@ def has_chat_part_file(video_id):
 
 def is_chat_downloaded(video_id):
     chat_folder = get_chat_downloads_folder()
-    json_path = os.path.join(chat_folder, f"{video_id}.json")
+    json_path = os.path.join(chat_folder, f"{video_id}.json.gz")
     return os.path.exists(json_path)

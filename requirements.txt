@@ -16,3 +16,7 @@ requests_ip_rotator
 # download_worker
 psutil
 yt-dlp
+
+# test
+pytypes
+pydantic

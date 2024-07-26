@@ -13,6 +13,7 @@ from portionurl_to_download_path import downloads_folder
 import psutil
 from download_portionurl import download_portionurl
 
+
 def log(message: str, *args):
     prefix = Code.LIGHTBLACK_EX + f"[chat_download_worker.py] [PID={os.getpid()}]"
     formatted_message = message % args
