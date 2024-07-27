@@ -1,5 +1,6 @@
 waivek
 wheel
+pytest
 Flask
 flask-cors
 pysqlite3-binary
@@ -18,5 +19,4 @@ psutil
 yt-dlp
 
 # test
-pytypes
 pydantic
