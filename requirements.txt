@@ -20,3 +20,6 @@ yt-dlp
 
 # test
 pydantic
+
+# debug
+pyre-check
