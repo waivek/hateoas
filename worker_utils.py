@@ -1,11 +1,35 @@
+import sys
 from waivek import rel2abs
 import os.path
+
+def log(message: str, *args):
+    from waivek import Code
+    import os
+    from datetime import datetime
+    from date import convert
+    dt = convert(datetime.now(), "UTC")
+    dt = dt.replace(microsecond=0)
+    date_string = dt.isoformat()
+
+    frame = sys._getframe(1)
+    filename = frame.f_code.co_filename
+    script_name = os.path.basename(filename)
+    prefix = Code.LIGHTBLACK_EX + f"[{date_string}] [{script_name}] [PID={os.getpid()}]"
+    formatted_message = message % args
+    output = " ".join([prefix, formatted_message])
+    print(output, flush=True)
 
 def get_video_downloads_folder():
     return rel2abs("static/downloads/videos")
 
 def get_chat_downloads_folder():
     return rel2abs("static/downloads/chats")
+
+def get_offsets_downloads_folder():
+    return rel2abs("static/downloads/offsets")
+
+def get_graph_payloads_downloads_folder():
+    return rel2abs("static/downloads/graph_payloads")
 
 def has_video_part_file(portionurl_id):
     video_folder = get_video_downloads_folder()

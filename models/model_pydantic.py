@@ -33,7 +33,7 @@ class Commenter(BaseModel):
 
 class Comment(BaseModel):
     id: str
-    commenter: Commenter
+    commenter: Optional[Commenter]
     contentOffsetSeconds: int
     createdAt: str
     message: CommentMessage

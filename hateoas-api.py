@@ -1,4 +1,6 @@
 
+from datetime import datetime
+import time
 from flask import request
 from flask import render_template_string
 from flask import render_template
@@ -9,6 +11,7 @@ from flask_cors import CORS
 from dbutils import Connection
 from Types import Sequence, Portion, PortionUrl
 from portionurl_to_download_path import downloaded, partially_downloaded
+from worker_utils import get_graph_payloads_downloads_folder, get_offsets_downloads_folder, has_chat_part_file, is_chat_downloaded
 from typing import TypedDict
 from waivek import read, rel2abs
 import os.path
@@ -639,7 +642,10 @@ def videos():
 
         {% for video in videos %}
         <div class="box tall">
-            <div><a href="{{ url_for('video', id=video['id']) }}">View</a></div>
+            <div class="wide">
+                <div><a href="{{ url_for('video', id=video['id']) }}">View</a></div>
+                <div><a href="{{ url_for('sync_video_to_video', video_id=video['id']) }}">Sync</a></div>
+            </div>
             <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
             <div>{{ video['title'] }}</div>
             <div>
@@ -661,10 +667,16 @@ def videos():
 @app.route("/chat_downloads")
 def chat_downloads():
     from get_worker_info import get_chat_worker_info
+    from chat_part_file_utils import video_id_to_pct
     cursor = connection.execute("SELECT id, video_id FROM queue_chat")
     queue_chat = [dict(row) for row in cursor.fetchall()]
     worker_table = get_chat_worker_info()
-
+    localtime_hhmmss = datetime.now().strftime("%H:%M:%S")
+    
+    # query videos from videos.db
+    cursor = videos_connection.execute("SELECT * FROM videos WHERE id IN ({})".format(",".join([str(row['video_id']) for row in queue_chat])))
+    videos = [dict(row) for row in cursor.fetchall()]
+    video_id_to_video = { video['id']: video for video in videos }
 
     return render_template_string("""
     {% extends "base.html" %}
@@ -675,6 +687,9 @@ def chat_downloads():
         {% include "nav.html" %}
         <div class="box tall">
 
+            <div>
+                The localtime is: {{ localtime_hhmmss }}
+            </div>
             {% for worker in worker_table %}
                 {% if worker.lock_status == 'stale' %}
                 <div>
@@ -690,13 +705,33 @@ def chat_downloads():
             <div class="error">No workers found</div>
             {% endif %}
             {% for row in queue_chat %}
-            <div>
-                {{ row['id'] }} - {{ row['video_id'] }}
-            </div>
+            <ol>
+                <li>
+                    <div>
+                        <div>
+                            <a href="{{ url_for('video', id=row['video_id']) }}">{{ row['video_id'] }}</a>
+                        </div>
+                        {% set video = video_id_to_video[row['video_id']] %}
+                        <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
+                    </div>
+                    <div>
+                        Status:
+                        {% if is_chat_downloaded(row['video_id']) %}
+                        <span class="green">complete</span>
+                        {% elif has_chat_part_file(row['video_id']) %}
+                        <span class="yellow">
+                            downloading - {{ "%0.2f" | format(video_id_to_pct(row['video_id']) ) }}%
+                        </span>
+                        {% else %}
+                        <span class="red">pending</span>
+                        {% endif %}
+                    </div>
+                </li>
+            </ol>
             {% endfor %}
         </div>
     </main>
-    {% endblock %}""", queue_chat=queue_chat, worker_table=worker_table)
+    {% endblock %}""", queue_chat=queue_chat, worker_table=worker_table, is_chat_downloaded=is_chat_downloaded, has_chat_part_file=has_chat_part_file, video_id_to_pct=video_id_to_pct, localtime_hhmmss=localtime_hhmmss, video_id_to_video=video_id_to_video)
 
 
 @app.route("/downloads")
@@ -831,7 +866,10 @@ def get_synced_videos_html(video_id, offset):
     {% for video in videos %}
     <div>
         <a onclick="load_sync_embed('{{ video.id }}', {{ int(epoch) - int(video.created_at_epoch) }})">
-            {{ video.id }} @ {{ (int(epoch) - int(video.created_at_epoch)) | hhmmss}}</a> - {{ video.user_name }}
+            {{ video.id }} @ {{ (int(epoch) - int(video.created_at_epoch)) | hhmmss}}
+        </a> 
+        <a href="{{ url_for('sync_video_to_video', video_id=video.id) }}">Sync</a>
+        - {{ video.user_name }}
     </div>
     {% endfor %}""", videos=videos, epoch=epoch, int=int)
 
@@ -848,14 +886,32 @@ def sync_video_to_video():
     video_id = request.args.get("video_id")
     cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
     video = dict(cursor.fetchone())
+
     offsets = []
-    offsets_path = rel2abs(f"data/offsets/{video_id}.json")
+    offsets_downloads_folder = get_offsets_downloads_folder()
+    offsets_path = os.path.join(offsets_downloads_folder, f"{video_id}.json")
     if os.path.exists(offsets_path):
         offsets = read(offsets_path)
+
+    graph_payload = {}
+    graph_payloads_downloads_folder = get_graph_payloads_downloads_folder()
+    graph_payload_path = os.path.join(graph_payloads_downloads_folder, f"{video_id}.json")
+    if os.path.exists(graph_payload_path):
+        graph_payload = read(graph_payload_path)
+        count_dictionaries = [ (D["int_offset"], D["rolling"]) for D in graph_payload['countpairs'] ]
+        for D in graph_payload['video_clips']:
+            D['x'] = D['start_offset']
+            D['y'] = 0.5
+            D['z'] = 4 if D['views'] > 100 else 2
+        graph_payload['countpairs'] = count_dictionaries
+
+
     cursor = connection.execute("SELECT 1 FROM queue_chat WHERE video_id = ?", (video_id,))
     video_id_in_chat_download_queue = cursor.fetchone() is not None
 
-    return render_template("sync_video_to_video.html", video=video, offsets=offsets, video_id_in_chat_download_queue=video_id_in_chat_download_queue)
+    synced_videos_html = get_synced_videos_html(video_id, 0)
+
+    return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html)
 
 @app.route("/info")
 def info():
@@ -889,10 +945,14 @@ def staticfiles():
     here = str(app.static_folder)
     files_recursive = []
     links_recursive = []
+    mtimes_recursive = []
     for root, dirs, files in os.walk(here):
         for file in files:
             files_recursive.append(os.path.join(root, file))
             links_recursive.append("static" + os.path.join(root, file).replace(here, ""))
+            mtimes_recursive.append(os.path.getmtime(os.path.join(root, file)))
+    # sort on `mtime` DESC
+    files_recursive, links_recursive, mtimes_recursive = zip(*sorted(zip(files_recursive, links_recursive, mtimes_recursive), key=lambda x: x[2], reverse=True))
 
     return render_template_string("""
     {% extends "base.html" %}
@@ -902,15 +962,16 @@ def staticfiles():
         <h1>Static Files</h1>
         {% include "nav.html" %}
         <div class="box tall">
-            {% for file, link in zip(files_recursive, links_recursive) %}
+            {% for file, link, mtime in zip(files_recursive, links_recursive, mtimes_recursive) %}
             <div class="wide">
                 <span>{{ file }}</span>
                 <a href="{{ link }}">{{ link }}</a>
+                <span class="gray">{{ mtime | timeago }}</span>
             </div>
             {% endfor %}
         </div>
     </main>
-    {% endblock %}""", files_recursive=files_recursive, links_recursive=links_recursive, zip=zip)
+    {% endblock %}""", files_recursive=files_recursive, links_recursive=links_recursive, mtimes_recursive=mtimes_recursive, zip=zip)
 
 def readstring(path):
     if not os.path.abspath(path):

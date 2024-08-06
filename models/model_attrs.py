@@ -38,7 +38,7 @@ class Commenter:
 @attrs.define
 class Comment:
     id: str
-    commenter: Commenter
+    commenter: Optional[Commenter]
     contentOffsetSeconds: int
     createdAt: str
     message: CommentMessage

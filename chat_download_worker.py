@@ -9,16 +9,10 @@ from waivek import Code
 import sys
 from types import FrameType
 import time
-from portionurl_to_download_path import downloads_folder
+from download_chat import download_chat
+from worker_utils import get_chat_downloads_folder, is_chat_downloaded, has_chat_part_file
 import psutil
-from download_portionurl import download_portionurl
-
-
-def log(message: str, *args):
-    prefix = Code.LIGHTBLACK_EX + f"[chat_download_worker.py] [PID={os.getpid()}]"
-    formatted_message = message % args
-    output = " ".join([prefix, formatted_message])
-    print(output, flush=True)
+from worker_utils import log
 
 def get_self_hash() -> str:
     with open(__file__, "r") as f:
@@ -28,26 +22,26 @@ def get_self_hash() -> str:
     return file_hash
 
 def get_lock_path(video_id):
-    lock_path = os.path.join(downloads_folder(), f"video_chat-{video_id}.lock")
+    lock_path = os.path.join(get_chat_downloads_folder(), f"video_chat-{video_id}.lock")
     return lock_path
 
-def lock_acquire(portionurl_id):
-    lock_path = get_lock_path(portionurl_id)
+def lock_acquire(video_id):
+    lock_path = get_lock_path(video_id)
     with open(lock_path, "w") as f:
         f.write(str(os.getpid()))
-    log("Acquired lock for portionurl_id: %s", portionurl_id)
+    log("Acquired lock for video_id: %s", video_id)
 
-def lock_release(portionurl_id):
-    lock_path = get_lock_path(portionurl_id)
+def lock_release(video_id):
+    lock_path = get_lock_path(video_id)
     os.remove(lock_path)
-    log("Released lock for portionurl_id: %s", portionurl_id)
+    log("Released lock for video_id: %s", video_id)
 
-def lock_exists(portionurl_id):
-    lock_path = get_lock_path(portionurl_id)
+def lock_exists(video_id):
+    lock_path = get_lock_path(video_id)
     return os.path.exists(lock_path)
 
-def lock_is_stale(portionurl_id):
-    lock_path = get_lock_path(portionurl_id)
+def lock_is_stale(video_id):
+    lock_path = get_lock_path(video_id)
     with open(lock_path, "r") as f:
         pid = int(f.read())
     pid_exists = psutil.pid_exists(pid)
@@ -56,51 +50,11 @@ def lock_is_stale(portionurl_id):
     else:
         return True
 
-def get_video_id():
-    global connection
-    cursor = connection.execute("SELECT video_id FROM queue_chat;")
-    video_ids = [ id for id, in cursor.fetchall() ]
-
-    # filter out downloaded video_ids
-    video_ids = [ video_id for video_id in video_ids if not video_chat_downloaded(id) ]
-
-    # remove stale locks
-    for video_id in video_ids:
-        if lock_exists(portionurl_id) and lock_is_stale(portionurl_id):
-            log("Removing stale lock for portionurl_id: %s", portionurl_id)
-            lock_release(portionurl_id)
-
-    # select a portionurl_id that is not locked
-    for portionurl_id in portionurl_ids:
-        if not lock_exists(portionurl_id):
-            return portionurl_id
-
-    return None
-
 def get_global_lock_path():
     if len(sys.argv) > 1 and sys.argv[1] in [ "red", "blue", "green", "yellow" ]:
         color = sys.argv[1]
-        return f"/tmp/download_worker_{color}.lock"
-    return f"/tmp/download_worker_{os.getpid()}.lock"
-
-def global_lock_exists():
-
-    lock_path = get_global_lock_path()
-    return os.path.exists(lock_path)
-
-def release_stale_global_colored_lock():
-    if len(sys.argv) != 2:
-        return
-    if sys.argv[1] not in [ "red", "blue", "green", "yellow" ]:
-        return
-    lock_path = get_global_lock_path()
-    if not os.path.exists(lock_path):
-        return
-    pid = int(open(lock_path, "r").read())
-    if psutil.pid_exists(pid):
-        return
-    os.remove(lock_path)
-    log("Released stale global lock: %s (%s)", pid, lock_path)
+        return f"/tmp/chat_download_worker_{color}.lock"
+    return f"/tmp/chat_download_worker_{os.getpid()}.lock"
 
 def global_lock_acquire():
     lock_path = get_global_lock_path()
@@ -112,6 +66,44 @@ def global_lock_release():
     lock_path = get_global_lock_path()
     os.remove(lock_path)
     log("Released global lock for PID: %s (%s)", os.getpid(), lock_path)
+
+def global_lock_exists():
+    lock_path = get_global_lock_path()
+    return os.path.exists(lock_path)
+
+def release_stale_global_colored_lock():
+    # checks {{{
+    if len(sys.argv) != 2:
+        return
+    if sys.argv[1] not in [ "red", "blue", "green", "yellow" ]:
+        return
+    lock_path = get_global_lock_path()
+    if not os.path.exists(lock_path):
+        return
+    # checks }}}
+    pid = int(open(lock_path, "r").read())
+    if psutil.pid_exists(pid):
+        return
+    os.remove(lock_path)
+    log("Released stale global lock: %s (%s)", pid, lock_path)
+
+def get_video_id():
+    global connection
+    cursor = connection.execute("SELECT video_id FROM queue_chat;")
+    video_ids = [ video_id for video_id, in cursor.fetchall() if not is_chat_downloaded(video_id) ]
+
+    # remove stale locks
+    for video_id in video_ids:
+        if lock_exists(video_id) and lock_is_stale(video_id):
+            log("Removing stale lock for video_id: %s", video_id)
+            lock_release(video_id)
+
+    # select a video_id that is not locked
+    for video_id in video_ids:
+        if not lock_exists(video_id):
+            return video_id
+
+    return None
 
 def loop():
 
@@ -142,19 +134,18 @@ def loop():
         if not allow_loop:
             log("Received signal to stop.")
             break
+        
+        video_id = get_video_id()
 
-        portionurl_id = get_portionurl_id()
-
-        if portionurl_id:
-            lock_acquire(portionurl_id)
-            log("Downloading portionurl_id: %s", portionurl_id)
-            # download_portionurl_interruptable(portionurl_id)
-            exit_code = download_portionurl(portionurl_id)
+        if video_id:
+            lock_acquire(video_id)
+            log("Downloading video_id: %s", video_id)
+            exit_code = download_chat(video_id)
             if exit_code == 0:
-                log("Downloaded portionurl_id: %s", portionurl_id)
+                log("Downloaded video_id: %s", video_id)
             else:
-                log("Failed to download portionurl_id: %s (exit_code=%d)", portionurl_id, exit_code)
-            lock_release(portionurl_id)
+                log("Failed to download video_id: %s (exit_code=%d)", video_id, exit_code)
+            lock_release(video_id)
             if exit_code != 0:
                 allow_loop = False
 
@@ -177,16 +168,16 @@ def connection_to_db_path(connection):
     return connection.execute("PRAGMA database_list;").fetchone()[2]
 
 def main():
-    if not tables_exist(connection, [ "portionurls" ]):
-        missing_table_names = get_missing_table_names(connection, [ "portionurls" ])
+    if not tables_exist(connection, [ "queue_chat" ]):
+        missing_table_names = get_missing_table_names(connection, [ "queue_chat" ])
         db_path = connection_to_db_path(connection)
         log(db_path)
         log("Missing tables: %s", missing_table_names)
         log("Exiting. (tables do not exist)")
 
         sys.exit(0)
-    if not os.path.exists(downloads_folder()):
-        os.makedirs(downloads_folder())
+    if not os.path.exists(get_chat_downloads_folder()):
+        os.makedirs(get_chat_downloads_folder())
     release_stale_global_colored_lock()
     if global_lock_exists():
         # Another instance is running.

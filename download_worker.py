@@ -13,12 +13,7 @@ import time
 from portionurl_to_download_path import downloads_folder, downloaded
 import psutil
 from download_portionurl import download_portionurl
-
-def log(message: str, *args):
-    prefix = Code.LIGHTBLACK_EX + f"[download_worker.py] [PID={os.getpid()}]"
-    formatted_message = message % args
-    output = " ".join([prefix, formatted_message])
-    print(output, flush=True)
+from worker_utils import log
 
 def get_self_hash() -> str:
     with open(__file__, "r") as f:

@@ -13,6 +13,8 @@ from datetime import datetime
 from waivek import Timer
 from waivek import write, read, rel2abs
 from waivek import Code
+
+from video_utils import get_video_duration_by_id_from_database
 timer = Timer()
 from waivek import ic, ib
 from dbutils import Connection
@@ -445,20 +447,6 @@ def print_args():
         print(f"ID: {video_id}, Duration: {video_duration}")
     write_artifact("action-args.json", video_pairs)
 
-def get_video_duration_by_id_from_database(video_id):
-    from waivek import db_init
-    from waivek import Timestamp
-    connection = db_init("data/videos.db")
-    cursor = connection.cursor()
-    cursor.execute("SELECT duration FROM videos WHERE id = ?;", (video_id,))
-    duration_int, = cursor.fetchone()
-    duration_string = str(duration_int)
-    if 'm' not in duration_string:
-        duration_string = '00m' + duration_string
-    if 'h' not in duration_string:
-        duration_string = '00h' + duration_string
-    seconds = Timestamp(duration_string).seconds
-    return seconds
 
 
 def get_data_D(video_id, cursor_or_offset):

@@ -62,13 +62,20 @@ a { cursor: pointer; }
         {% endif %}
         <div>
             <h4>POV’s - Updated on player time update</h4>
-            <div>Sync Offset: <span id="sync_offset">NULL</span></div>
-            <div id="synced_videos_list">NULL</div>
+            <div>Sync Offset: <span id="sync_offset"></span></div>
+            <div id="synced_videos_list">
+                {{ synced_videos_html | safe }}
+            </div>
         </div>
-        <div>Download Chat</div>
-        <div>{{ video }}</div>
         <div id="chart">
         </div>
+        <div>
+            {#
+            <h4><code>graph_payload['countpairs']</code></h4>
+            <pre>{{ graph_payload['countpairs'] | tojson | safe }}</pre>
+            #}
+        </div>
+        <div>{{ video }}</div>
     </div>
 </main>
 
@@ -101,8 +108,8 @@ a { cursor: pointer; }
         if (seconds < 10) { seconds = "0" + seconds; }
         return hours + "h" + minutes + "m" + seconds + "s";
     }
-    function update_synced_videos_list () {
-        const offset = player.getCurrentTime();
+    async function update_synced_videos_list (position=null) {
+        const offset = position || player.getCurrentTime();
         const video_id = "{{ video['id'] }}";
         const offset_integer = Math.floor(offset);
         const url = "/get_synced_videos_html/" + video_id + "/" + offset_integer;
@@ -114,7 +121,7 @@ a { cursor: pointer; }
         document.getElementById("sync_offset").innerHTML = hhmmss(offset_integer);
 
 
-        log("update_synced_videos_list", offset_integer);
+        log(`update_synced_videos_list: offset: ${hhmmss(offset_integer)}`);
     }
     function load_sync_embed(video_id, offset) {
         const listener = () => {
@@ -137,9 +144,12 @@ a { cursor: pointer; }
         }
     }
     player.addEventListener(Twitch.Player.SEEK, function() {
-        update_synced_videos_list();
+        // log(`Twitch.Player.SEEK, arguments: ${JSON.stringify(arguments)}`);
+        const position = arguments[0].position;
+        update_synced_videos_list(position);
     });
     player.addEventListener(Twitch.Player.PAUSE, function() {
+        // log(`Twitch.Player.PAUSE, arguments: ${JSON.stringify(arguments)}`);
         update_synced_videos_list();
     });
     function set_start() {
@@ -155,10 +165,14 @@ a { cursor: pointer; }
 </script>
 
 <script>
-    Highcharts.chart('chart', {
+    const that = this;
+    const graph_payload = {{ graph_payload | tojson }};
+    Highcharts.chart('chart', 
+        {
             title: {
                 text: null
             },
+            {# chart {{{ #}
             chart: {
                 backgroundColor: "#2a2a2b",
                 zooming: {
@@ -188,8 +202,8 @@ a { cursor: pointer; }
                             chart.xAxis[0].update();
                         }, 500);
                         window.chart = chart;
-                        // const pointsToUpdate = flask_data['peakpairs'].map(x => x['peak_offset']);
-                        const pointsToUpdate = flask_data['top_offsets']
+                        // const pointsToUpdate = graph_payload['peakpairs'].map(x => x['peak_offset']);
+                        const pointsToUpdate = graph_payload['top_offsets']
                         points.forEach(function(point) {
                             if (pointsToUpdate.includes(point.x)) {
                                 point.update({
@@ -204,8 +218,10 @@ a { cursor: pointer; }
 
                         
                     },
-                },
+                }
             },
+            {# }}} #}
+            {# tooltip, xAxis, yAxis {{{ #}
             tooltip: {
                 headerFormat: '',
             },
@@ -229,9 +245,13 @@ a { cursor: pointer; }
                     text: null
                 }
             },
+            {# }}} #}
             accessibility: { enabled: false },
-            series: [{
-                data: {{ offsets[0:20] }},
+            series: [
+
+            {
+                data: graph_payload['countpairs'],
+                {# data: [ [0, 1], [1, 2] ], #}
                 name: 'chat',
                 tooltip: {
                     pointFormatter() {
@@ -251,9 +271,7 @@ a { cursor: pointer; }
                         }
                     }
                 }
-            },
-
-
+            }, 
             {
                 type: 'bubble',
                 minSize: 10,

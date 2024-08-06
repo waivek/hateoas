@@ -1,10 +1,15 @@
 import os
 import json
+import sys
 import time
 import gzip
+from typing_extensions import assert_type
 
 from waivek import rel2abs, read, write, Code, ic, truncate, Timestamp, Timer
+
+from video_utils import get_video_duration_by_id_from_database
 timer = Timer()
+from chat_utils import dict_to_comments_page
 from worker_utils import has_chat_part_file, is_chat_downloaded, get_chat_downloads_folder
 
 from requests_ip_rotator import ApiGateway
@@ -15,15 +20,16 @@ from urllib3.util.retry import Retry
 from get_gateway import get_gateway_with_caching
 
 from chat_part_file_utils import append_data_to_part_file, get_last_offset_from_part_file, part_file_to_json
+from models.model_attrs import CommentsPage
 
 
-def get_D_oneliner(D, duration=None):
+def get_D_oneliner(comments_page: CommentsPage, duration=None):
 
-    first_offset = D['edges'][0]['node']['contentOffsetSeconds']
-    last_offset = D['edges'][-1]['node']['contentOffsetSeconds']
-    edge_count = len(D['edges'])
-    has_next_page = D['pageInfo']['hasNextPage'] 
-    cursor = truncate(D['edges'][-1]['cursor'], 80)
+    first_offset = comments_page.edges[0].node.contentOffsetSeconds
+    last_offset = comments_page.edges[-1].node.contentOffsetSeconds
+    edge_count = len(comments_page.edges)
+    has_next_page = comments_page.pageInfo.hasNextPage
+    # cursor = truncate(comments_page['edges'][-1]['cursor'], 80)
     first_offset_str = Timestamp(first_offset).timestamp
     last_offset_str = Timestamp(last_offset).timestamp
     green_bg_black_fg_ansi = '\x1b[42;30m'
@@ -60,21 +66,6 @@ def get_data_D(video_id, cursor_or_offset):
     }
     return D
 
-def get_video_duration_by_id_from_database(video_id):
-    from waivek import db_init
-    from waivek import Timestamp
-
-    connection = db_init("data/videos.db")
-    cursor = connection.cursor()
-    cursor.execute("SELECT duration FROM videos WHERE id = ?;", (video_id,))
-    duration_int, = cursor.fetchone()
-    duration_string = str(duration_int)
-    if 'm' not in duration_string:
-        duration_string = '00m' + duration_string
-    if 'h' not in duration_string:
-        duration_string = '00h' + duration_string
-    seconds = Timestamp(duration_string).seconds
-    return seconds
 
 
 
@@ -83,7 +74,8 @@ def chat_gql_sync_ip_rotation_offset_resumable(video_id) -> None:
         print("[SKIP] " + (Code.LIGHTCYAN_EX + video_id))
         return
 
-    function_name = "chat_gql_sync_ip_rotation_offset_resumable"
+    function_name = sys._getframe().f_code.co_name
+    print(f"[{function_name}] {video_id}")
     # offset < duration is bad practice but no choice for non cursor fetch
 
     folder = get_chat_downloads_folder()
@@ -91,17 +83,6 @@ def chat_gql_sync_ip_rotation_offset_resumable(video_id) -> None:
         os.makedirs(folder)
     part_path = os.path.join(folder, f"{video_id}.json.part")
     json_zip_path = os.path.join(folder, f"{video_id}.json.gz")
-
-    # if has_chat_part_file(video_id) and chat_part_file_has_data(video_id):
-    #     print("[RESUME] " + (Code.LIGHTCYAN_EX + part_path))
-    #     dicts = read(part_path)
-    #     D = dicts[-1]
-    #     offset = D['edges'][-1]['node']['contentOffsetSeconds']
-    # else:
-    #     # init the part file with an empty list
-    #     write([], part_path)
-    #     print("[START] " + (Code.LIGHTCYAN_EX + part_path))
-    #     offset = 0
 
     if not os.path.exists(part_path) or os.stat(part_path).st_size == 0:
         with open(part_path, 'w') as f:
@@ -139,13 +120,18 @@ def chat_gql_sync_ip_rotation_offset_resumable(video_id) -> None:
 
     # touch {part_path}
     while has_next_page and offset < duration:
-        D = get_data_D(video_id, offset)
-        data_string = json.dumps(D)
+        post_dict = get_data_D(video_id, offset)
+        data_string = json.dumps(post_dict)
         attempt_count = 3
         response = None
+        D = None
+        response_dict = None
         while attempt_count > 0:
             try:
                 response = session.post(url, data_string)
+                response.raise_for_status()
+                response_dict = response.json()
+
             except Exception as e:
                 error = e
                 attempt_count = attempt_count - 1
@@ -156,19 +142,24 @@ def chat_gql_sync_ip_rotation_offset_resumable(video_id) -> None:
                 break
         request_count = request_count + 1
 
-        assert response
-        D = response.json()
-        D = D['data']['video']['comments']
-        print(get_D_oneliner(D, duration))
+        assert isinstance(response_dict, dict)
+        D = response_dict['data']['video']['comments']
+        assert type(D) == dict
+
+        comments_page = dict_to_comments_page(D)
+        print(get_D_oneliner(comments_page, duration))
         # dicts.append(D)
         append_data_to_part_file(part_path, D)
 
 
-        first_offset = D['edges'][0]['node']['contentOffsetSeconds']
-        last_offset = D['edges'][-1]['node']['contentOffsetSeconds']
+        # first_offset = D['edges'][0]['node']['contentOffsetSeconds']
+        first_offset = comments_page.edges[0].node.contentOffsetSeconds
+        last_offset = comments_page.edges[-1].node.contentOffsetSeconds
         # if last_offset > 600:
         #     break # for debugging
-        has_next_page = D['pageInfo']['hasNextPage'] 
+
+        # has_next_page = D['pageInfo']['hasNextPage'] 
+        has_next_page = comments_page.pageInfo.hasNextPage
         # HACK FOR SMALL WINDOWS TO PREVENT REPETITION, ALSO CAUSED BY GOING BY OFFSET INSTEAD OF CURSOR
         if offset >= last_offset:
             offset = offset + 1
@@ -184,7 +175,7 @@ def chat_gql_sync_ip_rotation_offset_resumable(video_id) -> None:
     ic(request_count)
     # gateway.shutdown()
 
-def get_chat_offsets_of_downloaded_video(video_id):
+def get_chat_offsets_of_downloaded_video(video_id) -> list[int]:
     if not is_chat_downloaded(video_id):
         raise Exception(f"Chat not downloaded for {video_id}")
 
@@ -193,6 +184,7 @@ def get_chat_offsets_of_downloaded_video(video_id):
     json_path = os.path.join(folder, f"{video_id}.json.gz")
     comments = []
     # dicts = read(json_path)
+    ic(json_path)
     with gzip.open(json_path, 'rt') as f:
         dicts = json.load(f)
     for D in dicts:
@@ -212,13 +204,23 @@ def get_chat_offsets_of_downloaded_video(video_id):
     # write(offsets, path)
     # print("[WRITE] " + (Code.LIGHTCYAN_EX + path))
 
+def download_chat(video_id) -> int:
+    # run’s chat_gql_sync_ip_rotation_offset_resumable and returns an exit code
+    try:
+        chat_gql_sync_ip_rotation_offset_resumable(video_id)
+    except Exception as e:
+        print(e)
+        return 1
+    return 0
+
+
+
 
 def main():
-    video_id = "2199695545"
-    # chat_gql_sync_ip_rotation_offset_resumable(video_id)
-    timer.start("get_chat_offsets_of_downloaded_video")
-    offsets = get_chat_offsets_of_downloaded_video(video_id)
-    timer.print("get_chat_offsets_of_downloaded_video")
+    # video_id = "2199695545"
+    video_id = "2199468577"
+    chat_gql_sync_ip_rotation_offset_resumable(video_id)
+    # offsets = get_chat_offsets_of_downloaded_video(video_id)
 
 
 if __name__ == "__main__":
