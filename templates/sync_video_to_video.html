@@ -15,29 +15,62 @@
 a { cursor: pointer; }
 .embeds {
     width: 100%;
-    border: solid 1px black;
     display: grid;
     grid-template-columns: 1fr 1fr;
+    grid-gap: 0.5rem;
 }
 </style>
 <main class="mono tall">
     {% include "nav.html" %}
     <h1>Sync Video on Video (Create Portion)</h1>
-    <div class="wide embeds">
+    <div class="embeds box">
         <div id="twitch-embed"></div>
         <div id="sync-embed"></div>
     </div>
     <div class="box tall">
-        <h3>Sync Video on Video (Create Portion)</h3>
-        <form>
-            <input type="text" name="title" placeholder="title">
-            <input type="text" name="start" placeholder="start">
-            <input type="text" name="end" placeholder="end">
+        <form action="{{ url_for('create_portion', sequence_id=sequence_id) }}" method="POST">
+            <div class="tall">
+                <div class="wide">
+                    <label class="gray">sequence_id</label>
+                    <input type="text" name="sequence_id" value="{{ sequence_id }}" readonly>
+
+                    <label class="gray">user_id</label>
+                    <input type="text" name="user_id" value="{{ video['user_id'] }}" readonly>
+
+                    <label class="gray">created_at_epoch</label>
+                    <input type="text" name="created_at_epoch" value="{{ video['created_at_epoch'] }}" readonly>
+
+                    <label class="gray">url</label>
+                    <input type="text" name="url" value="{{ video['url'] }}" readonly>
+
+                    <label class="gray">video_id</label>
+                    <input type="text" name="video_id" value="{{ video['id'] }}" readonly>
+                </div>
+                <input type="text" name="title" placeholder="title">
+                <div class="wide">
+                    <div class="tall">
+                        <input type="text" name="start" placeholder="start">
+                        <div>
+                            <button onclick="set_start()">Set Start</button>
+                            <button onclick="jump_to_start()">Jump to Start</button>
+                        </div>
+                    </div>
+                    <div class="tall">
+                        <input type="text" name="end" placeholder="end">
+                        <div>
+                            <button onclick="set_end()">Set End</button>
+                            <button onclick="jump_to_end()">Jump to End</button>
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    {# create a <select> out of sequences: list[Sequence] #}
+                    <button class="font-bold">CREATE PORTION</button>
+                </div>
+            </div>
         </form>
-        <div class="wide">
-            <button onclick="set_start()">Set Start</button>
-            <button onclick="set_end()">Set End</button>
-        </div>
+    </div>
+    <div class="box tall">
         {% if offsets %}
         <!-- max width: 200ch, overflow = ellipsis -->
         <div>
@@ -159,6 +192,20 @@ a { cursor: pointer; }
     function set_end() {
         const offset = player.getCurrentTime();
         document.querySelector("input[name=end]").value = Math.floor(offset);
+    }
+    function jump_to_start() {
+        const offset = document.querySelector("input[name=start]").value;
+        if (offset === "") {
+            return;
+        }
+        player.seek(parseFloat(offset));
+    }
+    function jump_to_end() {
+        const offset = document.querySelector("input[name=end]").value;
+        if (offset === "") {
+            return;
+        }
+        player.seek(parseFloat(offset));
     }
         
     

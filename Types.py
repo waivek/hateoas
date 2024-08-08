@@ -12,11 +12,12 @@ def hhmmss(value):
 
 class PortionUrl:
 
-    def __init__(self, id, portion_id, url, selected, user_id):
+    def __init__(self, id, portion_id, url, selected, resync, user_id):
         self.id = id
         self.portion_id = portion_id
         self.url = url
         self.selected = selected
+        self.resync = resync
         self.user_id = user_id
 
     def offset(self):

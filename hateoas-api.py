@@ -228,7 +228,14 @@ def view_portion(sequence_id, portion_id):
                     <div class="box tall">
                         <div title="{{ portionurl["url"] }} @ {{ extra['offset'] | hhmmss }}">{{ extra['user_name'] }}</div>
                         <form action="{{ url_for('select_portionurl', sequence_id=portion['sequence_id'], portion_id=portion['id'], portionurl_id=portionurl['id']) }}" method="POST">
-                            <button type="submit">Select</button>
+                            <div class="tall">
+                                {# add a toggle for resync #}
+                                <div class="wide">
+                                    <input type="checkbox" name="resync" value="true">
+                                    <label for="resync">Resync</label>
+                                </div>
+                                <button type="submit">Select</button>
+                            </div>
                         </form>
                     </div>
                 {% endfor %}
@@ -424,13 +431,13 @@ def create_portion(sequence_id):
 
     # portionurls(portion_id, url, original, selected)
     cursor = connection.cursor()
-    cursor.execute("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?, ?)", (portion_id, request.form["url"], True, user_id))
+    cursor.execute("INSERT INTO portionurls (portion_id, url, selected, resync, user_id) VALUES (?, ?, ?, ?, ?)", (portion_id, request.form["url"], True, False, user_id))
     cursor.execute("INSERT INTO downloads (portionurl_id, status) VALUES (?, 'paused')", (cursor.lastrowid,))
 
     cursor = connection.cursor()
     videos = get_synced_videos(request.form["video_id"], start)
-    portionurls = [(portion_id, video["url"], False, video["user_id"]) for video in videos]
-    cursor.executemany("INSERT INTO portionurls (portion_id, url, selected, user_id) VALUES (?, ?, ?, ?)", portionurls)
+    portionurls = [(portion_id, video["url"], False, False, video["user_id"]) for video in videos]
+    cursor.executemany("INSERT INTO portionurls (portion_id, url, selected, resync, user_id) VALUES (?, ?, ?, ?, ?)", portionurls)
 
     connection.commit()
     return redirect(url_for("view_portions", id=sequence_id))
@@ -590,6 +597,9 @@ def videos():
         "total": total
     }
 
+    cursor = connection.execute("SELECT * FROM sequences")
+    sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
+
     return render_template_string("""
     {% extends "base.html" %}
     {% block title %}Videos{% endblock %}
@@ -642,9 +652,17 @@ def videos():
 
         {% for video in videos %}
         <div class="box tall">
-            <div class="wide">
+            <div class="tall">
                 <div><a href="{{ url_for('video', id=video['id']) }}">View</a></div>
-                <div><a href="{{ url_for('sync_video_to_video', video_id=video['id']) }}">Sync</a></div>
+                <div class="wide">
+
+                    <div>Sync to:</div>
+                    {% for sequence in sequences %}
+                    <div><a href="{{ url_for('sync_video_to_video', video_id=video['id'], sequence_id=sequence['id']) }}">{{ sequence['name'] }}</a></div>
+                    {% endfor %}
+
+                    {# <a href="{{ url_for('sync_video_to_video', video_id=video['id']) }}">Sync</a> #}
+                </div>
             </div>
             <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
             <div>{{ video['title'] }}</div>
@@ -662,7 +680,7 @@ def videos():
         </div>
         {% endif %}
     </main>
-    {% endblock %}""", videos=videos, pagination=pagination)
+    {% endblock %}""", videos=videos, pagination=pagination, sequences=sequences)
 
 @app.route("/chat_downloads")
 def chat_downloads():
@@ -883,6 +901,7 @@ def add_video_to_chat_download_queue(video_id):
 
 @app.route("/sync_video_to_video")
 def sync_video_to_video():
+    sequence_id = request.args.get("sequence_id")
     video_id = request.args.get("video_id")
     cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
     video = dict(cursor.fetchone())
@@ -911,7 +930,7 @@ def sync_video_to_video():
 
     synced_videos_html = get_synced_videos_html(video_id, 0)
 
-    return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html)
+    return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html, sequence_id=sequence_id)
 
 @app.route("/info")
 def info():
