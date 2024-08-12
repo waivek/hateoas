@@ -2,11 +2,14 @@ import sys
 from waivek import rel2abs
 import os.path
 
+def convert(dt, tz):
+    import pytz
+    return dt.astimezone(pytz.timezone(tz))
+
 def log(message: str, *args):
     from waivek import Code
     import os
     from datetime import datetime
-    from date import convert
     dt = convert(datetime.now(), "UTC")
     dt = dt.replace(microsecond=0)
     date_string = dt.isoformat()
@@ -52,3 +55,5 @@ def is_chat_downloaded(video_id):
     chat_folder = get_chat_downloads_folder()
     json_path = os.path.join(chat_folder, f"{video_id}.json.gz")
     return os.path.exists(json_path)
+
+log("Hello World!")
