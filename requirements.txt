@@ -1,3 +1,5 @@
+# see ./requirements-large.txt
+
 waivek
 wheel
 pytest
@@ -23,7 +25,4 @@ pydantic
 
 # video_stats
 pandas
-
-# transcription
-openai-whisper
 
