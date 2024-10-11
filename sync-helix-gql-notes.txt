@@ -1,0 +1,14 @@
+sydeon: 
+        video_id     =           2199424572
+        stream_id    =          51530467741
+        created_at   = 2024-07-16T21:08:59Z
+        published_at = 2024-07-16T21:08:59Z
+        recordedAt (gql) = 2024-07-16T21:08:59Z
+
+quarterjade:
+    video_id = 2199687421
+    stream_id = 44540396683
+    created_at = 2024-07-17T02:33:09Z
+    published_at = 2024-07-17T02:33:09Z
+    recordedAt = 2024-07-17T02:33:09Z
+
