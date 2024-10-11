@@ -51,21 +51,21 @@ a { cursor: pointer; }
                     <div class="tall">
                         <input type="text" name="start" placeholder="start">
                         <div>
-                            <button onclick="set_start()">Set Start</button>
-                            <button onclick="jump_to_start()">Jump to Start</button>
+                            <button type="button" onclick="set_start()">Set Start</button>
+                            <button type="button" onclick="jump_to_start()">Jump to Start</button>
                         </div>
                     </div>
                     <div class="tall">
                         <input type="text" name="end" placeholder="end">
                         <div>
-                            <button onclick="set_end()">Set End</button>
-                            <button onclick="jump_to_end()">Jump to End</button>
+                            <button type="button" onclick="set_end()">Set End</button>
+                            <button type="button" onclick="jump_to_end()">Jump to End</button>
                         </div>
                     </div>
                 </div>
                 <div>
                     {# create a <select> out of sequences: list[Sequence] #}
-                    <button class="font-bold">CREATE PORTION</button>
+                    <button class="font-bold" type="submit">CREATE PORTION</button>
                 </div>
             </div>
         </form>

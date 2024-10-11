@@ -259,13 +259,18 @@ def view_portions(id):
 
     extras = []
     for portion in portions:
+
         D = {}
         cursor = connection.execute("SELECT * FROM portionurls WHERE portion_id = ?", (portion["id"],))
         D["portionurls"] = [PortionUrl(**url) for url in cursor.fetchall()]
         
         
         videos = urls_to_videos([portionurl["url"] for portionurl in D["portionurls"]])
-        video = next(video for video in videos if video["user_id"] == portion["user_id"])
+        try:
+            video = next(video for video in videos if video["user_id"] == portion["user_id"])
+        except StopIteration as stop_iteration_error:
+            print(portion.pretty())
+            raise stop_iteration_error
         
         D["video"] = video
         D["offset"] = portion["epoch"] - video["created_at_epoch"]
@@ -887,6 +892,7 @@ def get_synced_videos_html(video_id, offset):
         <a onclick="load_sync_embed('{{ video.id }}', {{ int(epoch) - int(video.created_at_epoch) }})">
             {{ video.id }} @ {{ (int(epoch) - int(video.created_at_epoch)) | hhmmss}}
         </a> 
+        -
         <a href="{{ url_for('sync_video_to_video', video_id=video.id) }}">Sync</a>
         - {{ video.user_name }}
     </div>

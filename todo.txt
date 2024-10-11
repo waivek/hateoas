@@ -1,3 +1,4 @@
+241009 - schema - Make it such that deleting `portion` delets all `portionurl`
 ✓ Add flush to print statements that print yt-dlp command and metadata info.
 ✓ When selecting portionurl_ids, filter out non `selected`.
 ✓ We are getting false negatives for downloaded files which have the extension `webm`.
