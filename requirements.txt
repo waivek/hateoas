@@ -26,3 +26,5 @@ pydantic
 # video_stats
 pandas
 
+# videos.py
+isodate

@@ -1,6 +1,16 @@
 <style>.active {color: red;} nav { font-weight: bold; }</style>
 <nav class="wide">
-    {% set D = {'home': 'Home', 'elements': 'Elements', 'view_sequences': 'View Sequences', 'videos': 'Videos', 'downloads': 'Video Downloads', 'info': 'Info', 'chat_downloads': 'Chat Downloads', } %}
+    {% set D = {
+        'home': 'Home',
+        'elements': 'Elements',
+        'view_sequences': 'View Sequences',
+        'videos': 'Videos',
+        'clips': 'Clips',
+        'users_video': 'Users (Video)',
+        'downloads': 'Video Downloads',
+        'info': 'Info',
+        'chat_downloads': 'Chat Downloads',
+    } %}
     {% set active = request.endpoint %}
     {% for k, v in D.items() %}
     <div>

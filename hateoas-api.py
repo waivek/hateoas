@@ -23,6 +23,7 @@ CORS(app)
 
 connection = Connection('data/main.db')
 videos_connection = Connection('data/videos.db')
+clips_connection = Connection('data/clips.db')
 
 
 def get_download_filename(portionurl: PortionUrl, portion: Portion, video: dict) -> str:
@@ -938,6 +939,183 @@ def sync_video_to_video():
     synced_videos_html = get_synced_videos_html(video_id, 0)
 
     return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html, sequence_id=sequence_id)
+
+@app.route("/clips")
+def clips():
+    cursor = clips_connection.cursor()
+    cursor.execute("SELECT * FROM clips")
+    if not cursor.fetchone():
+        return render_template_string("""
+        {% extends "base.html" %}
+        {% block title %}Clips{% endblock %}
+        {% block body %}
+        <main class="mono tall">
+            <h1>Clips</h1>
+            {% include "nav.html" %}
+            <div class="box tall">
+                <div class="error">Table `clips` not found in `clips.db`</div>
+            </div>
+        </main>
+        {% endblock %}""")
+    start_date = request.args.get("start_date", None)
+    end_date = request.args.get("end_date", None)
+    user_id = request.args.get("user_id", None)
+    page = int(request.args.get("page", 1))
+    cursor = clips_connection.cursor()
+    limit = 10
+    offset = (page - 1) * limit
+
+    query = "SELECT * FROM clips"
+    conditions = []
+    parameters = []
+    if start_date:
+        conditions.append("created_at_epoch >= ?")
+        parameters.append(start_date)
+    if end_date:
+        conditions.append("created_at_epoch <= ?")
+        parameters.append(end_date)
+    if user_id:
+        conditions.append("broadcaster_id = ?")
+        parameters.append(user_id)
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    query += " ORDER BY view_count DESC"
+    query += " LIMIT ? OFFSET ?"
+    parameters.extend([limit, offset])
+    cursor.execute(query, parameters)
+
+    clips = [dict(clip) for clip in cursor.fetchall()]
+
+
+    cursor.execute("SELECT COUNT(*) FROM clips")
+    total = cursor.fetchone()[0]
+    page_count = total // limit
+    if total % limit:
+        page_count += 1
+
+    pagination = {
+        "currentPage": page,
+        "currentPageSize": limit,
+        "pageCount": page_count,
+        "isFirstPage": page == 1,
+        "isLastPage": page == page_count,
+        "prev": page - 1 if page > 1 else None,
+        "next": page + 1 if page < page_count else None,
+        "total": total
+    }
+
+    cursor = connection.execute("SELECT * FROM sequences")
+    sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
+
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Clips{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Clips</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+            <h3>Pagination</h3>
+            <div>
+                <form action="{{ url_for('clips') }}" method="GET">
+                    <input type="text" name="start_date" placeholder="start_date">
+                    <input type="text" name="end_date" placeholder="end_date">
+                    <input type="text" name="user_id" placeholder="user_id">
+                    <button type="submit">Filter</button>
+                </form>
+            </div>
+            <div>
+                {% if pagination['isFirstPage'] %}
+                <span class="gray">First</span>
+                {% else %}
+                <a href="{{ url_for('videos', page=1) }}">First</a>
+                {% endif %}
+                {% if pagination['prev'] %}
+                <a href="{{ url_for('videos', page=pagination['prev']) }}">Prev</a>
+                {% else %}
+                <span class="gray">Prev</span>
+                {% endif %}
+
+                <span>Page {{ pagination['currentPage'] }} of {{ pagination['pageCount'] }}</span>
+
+                {% if pagination['next'] %}
+                <a href="{{ url_for('videos', page=pagination['next']) }}">Next</a>
+                {% else %}
+                <span class="gray">Next</span>
+                {% endif %}
+                {% if pagination['isLastPage'] %}
+                <span class="gray">Last</span>
+                {% else %}
+                <a href="{{ url_for('videos', page=pagination['pageCount']) }}">Last</a>
+                {% endif %}
+            </div>
+            <div>
+                <span>Total: {{ pagination['total'] }}</span>
+            </div>
+        </div>
+        {% for clip in clips %}
+        <div class="box tall">
+            <div class="tall">
+                {# <div><a href="{{ url_for('clip', id=clip['id']) }}">View</a></div> #}
+                <div class="wide">
+                    <div>Sync to:</div>
+                    {% for sequence in sequences %}
+                    {# <div><a href="{{ url_for('sync_clip_to_video', clip_id=clip['id'], sequence_id=sequence['id']) }}">{{ sequence['name'] }}</a></div> #}
+                    {% endfor %}
+                </div>
+            </div>
+            <div>Clip of: {{ clip['broadcaster_name'] }}, created {{ clip['created_at_epoch'] | timeago }}, with a duration of: {{ clip['duration'] | hhmmss }}</div>
+            <div>{{ clip['title'] }}</div>
+            <div>
+                <a href="{{ clip['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}">
+                    <img height=150 src="{{ clip['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}" alt="{{ clip['title'] }}">
+                </a>
+            </div>
+            <div>{{ clip }}</div>
+        </div>
+        {% endfor %}
+        {% if not clips %}
+        <div class="box">
+            No clips found
+        </div>
+        {% endif %}
+    </main>
+    {% endblock %}""", clips=clips, pagination=pagination, sequences=sequences)
+
+
+
+
+
+
+
+
+
+
+
+
+@app.route("/users_video")
+def users_video():
+    cursor = videos_connection.execute("SELECT user_id, user_name FROM videos GROUP BY user_id")
+    users = [dict(row) for row in cursor.fetchall()]
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Users{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Users</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+            {% for user in users %}
+            <div class="wide">
+                <span>{{ user['user_name'] }}</span>
+                <span>{{ user['user_id'] }}</span>
+                <a href="{{ url_for('videos', user_id=user['user_id']) }}">Videos</a>
+                <a href="{{ url_for('clips', user_id=user['user_id']) }}">Clips</a>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+    {% endblock %}""", users=users)
 
 @app.route("/info")
 def info():
