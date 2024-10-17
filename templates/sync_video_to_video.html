@@ -21,63 +21,100 @@ a { cursor: pointer; }
 }
 </style>
 <main class="mono tall">
-    {% include "nav.html" %}
     <h1>Sync Video on Video (Create Portion)</h1>
+    {% include "nav.html" %}
+    <style>
+        .baseline { align-items: baseline; }
+        .shrink-0 { flex-shrink: 0; }
+        .flex-wrap { flex-wrap: wrap; }
+        input[readonly] { field-sizing: content; }
+    </style>
     <div class="embeds box">
         <div id="twitch-embed"></div>
         <div id="sync-embed"></div>
     </div>
-    <div class="box tall">
-        <form action="{{ url_for('create_portion', sequence_id=sequence_id) }}" method="POST">
-            <div class="tall">
-                <div class="wide">
-                    <label class="gray">sequence_id</label>
-                    <input type="text" name="sequence_id" value="{{ sequence_id }}" readonly>
-
-                    <label class="gray">user_id</label>
-                    <input type="text" name="user_id" value="{{ video['user_id'] }}" readonly>
-
-                    <label class="gray">created_at_epoch</label>
-                    <input type="text" name="created_at_epoch" value="{{ video['created_at_epoch'] }}" readonly>
-
-                    <label class="gray">url</label>
-                    <input type="text" name="url" value="{{ video['url'] }}" readonly>
-
-                    <label class="gray">video_id</label>
-                    <input type="text" name="video_id" value="{{ video['id'] }}" readonly>
-                </div>
-                <input type="text" name="title" placeholder="title">
-                <div class="wide">
-                    <div class="tall">
-                        <input type="text" name="start" placeholder="start">
-                        <div>
-                            <button type="button" onclick="set_start()">Set Start</button>
-                            <button type="button" onclick="jump_to_start()">Jump to Start</button>
-                        </div>
-                    </div>
-                    <div class="tall">
-                        <input type="text" name="end" placeholder="end">
-                        <div>
-                            <button type="button" onclick="set_end()">Set End</button>
-                            <button type="button" onclick="jump_to_end()">Jump to End</button>
-                        </div>
-                    </div>
-                </div>
-                <div>
-                    {# create a <select> out of sequences: list[Sequence] #}
-                    <button class="font-bold" type="submit">CREATE PORTION</button>
-                </div>
-            </div>
-        </form>
+    {% if clip %}
+    <div class="box wide">
+        <div>{{ (clip['vod_offset'] - clip['duration']) | hhmmss }} ({{ clip['vod_offset'] - clip['duration'] }})</div>
+        <span><a href="https://clips.twitch.tv/{{ clip['id'] }}">Twitch</a></span>
+        <span><a href="{{ url_for('clip', clip_id=clip['id']) }}">{{ url_for('clip', clip_id=clip['id']) }}</a></span>
     </div>
+    {% endif %}
+    <div class="box wide baseline">
+        <div class="tall shrink-0">
+            <div class="tall-0">
+                <span>Start: {{ video['created_at_epoch'] | to_ist }}</span>
+                <span>End: {{ (video['created_at_epoch'] + video['duration']) | to_ist }}</span>
+                <span>Duration: {{ video['duration'] | hhmmss }}</span>
+            </div>
+            <h4>POV’s - Updated on player time update</h4>
+            <div class="gray">{{ video['id'] }} @ <span id="sync_offset">{{ 0 | hhmmss }}</span> - Sync - {{ video['user_name'] }}</div>
+
+            <div id="synced_videos_list">
+                {{ synced_videos_html | safe }}
+            </div>
+        </div>
+        <div>
+            <form action="{{ url_for('create_portion', sequence_id=sequence_id) }}" method="POST">
+                <div class="tall">
+                    <div class="wide flex-wrap">
+                        <div>
+                            <label class="gray">sequence_id</label>
+                            <input type="text" name="sequence_id" value="{{ sequence_id }}" readonly>
+                        </div>
+
+                        <div>
+                            <label class="gray">user_id</label>
+                            <input type="text" name="user_id" value="{{ video['user_id'] }}" readonly>
+                        </div>
+
+                        <div>
+                            <label class="gray">created_at_epoch</label>
+                            <input type="text" name="created_at_epoch" value="{{ video['created_at_epoch'] }}" readonly>
+                        </div>
+
+                        <div>
+                            <label class="gray">url</label>
+                            <input type="text" name="url" value="{{ video['url'] }}" readonly>
+                        </div>
+
+                        <div>
+                            <label class="gray">video_id</label>
+                            <input type="text" name="video_id" value="{{ video['id'] }}" readonly>
+                        </div>
+                    </div>
+                    <input type="text" name="title" placeholder="title">
+                    <div class="wide">
+                        <div class="tall">
+                            <input type="text" name="start" placeholder="start">
+                            <div>
+                                <button type="button" onclick="set_start()">Set Start</button>
+                                <button type="button" onclick="jump_to_start()">Jump to Start</button>
+                            </div>
+                        </div>
+                        <div class="tall">
+                            <input type="text" name="end" placeholder="end">
+                            <div>
+                                <button type="button" onclick="set_end()">Set End</button>
+                                <button type="button" onclick="jump_to_end()">Jump to End</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        {# create a <select> out of sequences: list[Sequence] #}
+                            <button class="font-bold" type="submit">CREATE PORTION</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+    <div class="box">{{ video }}</div>
     <div class="box tall">
         {% if offsets %}
-        <!-- max width: 200ch, overflow = ellipsis -->
-        <div>
-            {{ offsets | string | truncate(120) }}
-            {% if offsets | length > 120 %}
-            ]
-            {% endif %}
+        {% if not graph_payload['chapters'] %}
+        <div class="error">No chapters found, run `python chapters.py {{ video['id'] }}`</div>
+        {% endif %}
+        <div id="chart">
         </div>
         {% else %}
         <div class="error">No offsets found, download offsets to see Chart</div>
@@ -93,22 +130,6 @@ a { cursor: pointer; }
             {% endif %}
         </div>
         {% endif %}
-        <div>
-            <h4>POV’s - Updated on player time update</h4>
-            <div>Sync Offset: <span id="sync_offset"></span></div>
-            <div id="synced_videos_list">
-                {{ synced_videos_html | safe }}
-            </div>
-        </div>
-        <div id="chart">
-        </div>
-        <div>
-            {#
-            <h4><code>graph_payload['countpairs']</code></h4>
-            <pre>{{ graph_payload['countpairs'] | tojson | safe }}</pre>
-            #}
-        </div>
-        <div>{{ video }}</div>
     </div>
 </main>
 
@@ -145,7 +166,7 @@ a { cursor: pointer; }
         const offset = position || player.getCurrentTime();
         const video_id = "{{ video['id'] }}";
         const offset_integer = Math.floor(offset);
-        const url = "/get_synced_videos_html/" + video_id + "/" + offset_integer;
+        const url = "/get_synced_videos_html/" + video_id + "/" + offset_integer + "?sequence_id={{ sequence_id }}";
         fetch(url).
             then(response => response.text()).
             then(html => {
@@ -214,12 +235,25 @@ a { cursor: pointer; }
 <script>
     const that = this;
     const graph_payload = {{ graph_payload | tojson }};
+    // Marker maker function
+    function createMarkers(markerData) {
+        return markerData.map((marker) => ({
+            x: marker.start,
+            x2: marker.end,
+            y: 0,
+            color: 'rgba(255, 255, 0, 0.5)',  // Semi-transparent yellow
+            label: marker.title
+        }));
+    }
+
+    // Use graph_payload['chapters'] as input
+    const chapterMarkers = graph_payload['chapters'];
+
     Highcharts.chart('chart', 
         {
             title: {
                 text: null
             },
-            {# chart {{{ #}
             chart: {
                 backgroundColor: "#2a2a2b",
                 zooming: {
@@ -267,8 +301,6 @@ a { cursor: pointer; }
                     },
                 }
             },
-            {# }}} #}
-            {# tooltip, xAxis, yAxis {{{ #}
             tooltip: {
                 headerFormat: '',
             },
@@ -283,16 +315,43 @@ a { cursor: pointer; }
                     formatter: function() {
 
                         return new Date(this.value * 1000).toISOString().substring(11, 19);
-                        return Highcharts.dateFormat('%b/%e/%Y', this.value);
+                    },
+                    style: {
+                        color: '#FFFFFF' // White color for x-axis labels
+                    }
+                },
+                lineColor: '#FFFFFF', // White color for x-axis line
+                tickColor: '#FFFFFF', // White color for x-axis ticks
+                title: {
+                    text: 'Time',
+                    style: {
+                        color: '#FFFFFF' // White color for x-axis title
                     }
                 }
             },
             yAxis: {
                 title: {
-                    text: null
+                    text: 'Chapters',
+                    style: {
+                        color: '#FFFFFF' // White color for y-axis title
+                    }
+                },
+                labels: {
+                    style: {
+                        color: '#FFFFFF' // White color for y-axis labels
+                    }
+                },
+                lineColor: '#FFFFFF', // White color for y-axis line
+                tickColor: '#FFFFFF' // White color for y-axis ticks
+            },
+            legend: {
+                itemStyle: {
+                    color: '#FFFFFF' // White color for legend text
+                },
+                itemHoverStyle: {
+                    color: '#CCCCCC' // Light gray color for legend item hover
                 }
             },
-            {# }}} #}
             accessibility: { enabled: false },
             series: [
 
@@ -350,6 +409,19 @@ a { cursor: pointer; }
                     }
                 },
                 data: [], // video clips
+            },
+            {
+                type: 'xrange',
+                name: 'Chapters',
+                data: createMarkers(chapterMarkers),
+                dataLabels: {
+                    enabled: true,
+                    color: '#FFFFFF',
+                    align: 'center',
+                    formatter: function () {
+                        return this.point.label;
+                    }
+                }
             }
 
             ],

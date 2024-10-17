@@ -1,4 +1,6 @@
-from waivek import Timer   # Single Use
+from waivek import Timer
+
+from query_user_ids import query_user_ids   # Single Use
 timer = Timer()
 from waivek import Code    # Multi-Use
 from waivek import handler # Single Use
@@ -9,6 +11,7 @@ from waivek import aget
 from waivek import db_init
 from waivek import insert_dictionaries
 from waivek import readlines
+from filter_out_existing_records import filter_out_existing_records
 import requests
 
 class Paths:
@@ -23,19 +26,6 @@ def to_rfc_3339(dt):
     s = dt.isoformat()+"Z"
     return s
 
-def helix_name2id(usernames):
-    parameter_string = "?login="+"&login=".join(usernames)
-    url = f"https://api.twitch.tv/helix/users{parameter_string}"
-    client_id, oath_token = get_helix_client_id_and_oath_token()
-    headers = { "Client-ID" : client_id, "Authorization" : "Bearer " + oath_token }
-    response = requests.get(url, headers=headers)
-    json_D = response.json()
-    unsynchronized_dictionaries = json_D["data"] # unsynced because dictionaries is not in same order as new_usernames
-    username2user_id =  { D["login"]: D["id"]  for D in unsynchronized_dictionaries }
-    user_id2username = { v: k for k, v in username2user_id.items() }
-    user_ids = [ username2user_id[username] for username in usernames ]
-    return user_ids
-
 def create_table_if_not_exists(cursor):
     table_name = "clips"
     table_exists = cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'".format(table_name=table_name)).fetchone()
@@ -47,7 +37,7 @@ def create_table_if_not_exists(cursor):
         print(f"Executing schema '{paths.schema_path}'")
 
 def get_clips_url(username, started_at, ended_at):
-    user_ids = helix_name2id([username])
+    user_ids = query_user_ids([username])
     user_id = user_ids[0]
     started_at = to_rfc_3339(started_at)
     ended_at = to_rfc_3339(ended_at)
@@ -65,8 +55,9 @@ def get_clips(usernames):
     responses = aget(urls, cache=False, url2header=lambda url:headers)
     connection = db_init(paths.db_path)
     cursor = connection.cursor()
-    cursor.execute("DROP TABLE IF EXISTS clips;")
+    # cursor.execute("DROP TABLE IF EXISTS clips;")
     create_table_if_not_exists(cursor)
+    # CREATE TABLE "clips" (id TEXT NOT NULL PRIMARY KEY, url TEXT NOT NULL, embed_url TEXT NOT NULL, broadcaster_id TEXT NOT NULL, broadcaster_name TEXT NOT NULL, creator_id TEXT NOT NULL, creator_name TEXT NOT NULL, game_id TEXT NOT NULL, -- the game_id can be '' language TEXT NOT NULL, title TEXT NOT NULL, view_count INTEGER NOT NULL, created_at TEXT NOT NULL, thumbnail_url TEXT NOT NULL, language TEXT NOT NULL, duration INTEGER NOT NULL, created_at_epoch INTEGER NOT NULL, video_id TEXT, vod_offset INTEGER) STRICT;
     for resp in responses:
         table = resp['data']
         for row in table:
@@ -75,7 +66,13 @@ def get_clips(usernames):
             created_at_epoch = int(created_at_utc.timestamp())
             row["duration"] = int(row["duration"])
             row["created_at_epoch"] = created_at_epoch
-        insert_dictionaries(cursor, 'clips', table)
+            if row["game_id"] == "":
+                row["game_id"] = None
+
+        table = filter_out_existing_records(cursor, table, 'clips')
+
+        cursor.executemany("INSERT INTO clips (id, url, embed_url, broadcaster_id, broadcaster_name, creator_id, creator_name, game_id, language, title, view_count, created_at, thumbnail_url, duration, created_at_epoch, video_id, vod_offset) VALUES (:id, :url, :embed_url, :broadcaster_id, :broadcaster_name, :creator_id, :creator_name, :game_id, :language, :title, :view_count, :created_at, :thumbnail_url, :duration, :created_at_epoch, :video_id, :vod_offset)", table)
+
     connection.commit()
     query = "SELECT * FROM clips LIMIT 5"
     cursor.execute(query)
@@ -84,10 +81,9 @@ def get_clips(usernames):
     ic(table)
 
 def main():
-    usernames = [ line.strip() for line in readlines("usernames.txt") ]
+    usernames = [ line.strip() for line in readlines("usernames.txt") if line.strip() ]
     get_clips(usernames)
 
-main()
-# if __name__ == "__main__":
-#     with handler():
-#         main()
+if __name__ == "__main__":
+    with handler():
+        main()

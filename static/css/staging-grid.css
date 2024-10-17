@@ -1,0 +1,20 @@
+.grid {
+    display: grid;
+    gap: 0.5rem;
+    width: max-content;
+    > * {
+        display: grid;
+        grid-template-columns: subgrid;
+    }
+}
+
+.cols-4 > * { grid-column: span 4; }
+
+/* .separated > *:not(:last-child)::after {  */
+/*     content: "·"; */
+/*     color: gray;  */
+/* } */
+.separated > *:not(:last-child) { 
+    border-right: 1.5px solid gray;
+    padding-right: 0.5em;
+}

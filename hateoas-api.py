@@ -1,30 +1,75 @@
 
-from datetime import datetime
+from datetime import datetime, timezone
 import time
+from zoneinfo import ZoneInfo
 from flask import request
 from flask import render_template_string
 from flask import render_template
 from flask import Flask
 from flask import redirect
 from flask import url_for
+from flask import session
 from flask_cors import CORS
 from dbutils import Connection
 from Types import Sequence, Portion, PortionUrl
+from jsonfile import usable
 from portionurl_to_download_path import downloaded, partially_downloaded
 from worker_utils import get_graph_payloads_downloads_folder, get_offsets_downloads_folder, has_chat_part_file, is_chat_downloaded
 from typing import TypedDict
-from waivek import read, rel2abs
+from waivek import read, rel2abs, write
 import os.path
+import socket
 
 
 app = Flask(__name__)
+app.secret_key = 'flash'
 app.config['Access-Control-Allow-Origin'] = '*'
 CORS(app)
 
 connection = Connection('data/main.db')
 videos_connection = Connection('data/videos.db')
 clips_connection = Connection('data/clips.db')
+games_connection = Connection('data/games.db')
 
+def get_history_db_schema() -> str:
+    schema_string = """
+    CREATE TABLE IF NOT EXISTS history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        epoch INTEGER,
+        method TEXT,
+        status_code INTEGER,
+        path TEXT
+    ) STRICT;
+    """
+    from textwrap import dedent
+    return dedent(schema_string.strip())
+
+def now() -> int:
+    non_naive_utc = datetime.now(timezone.utc)
+    return int(non_naive_utc.timestamp())
+
+# before-request, log the explicit url path in a text file along with the timestamp
+@app.after_request
+def log_request(response):
+    log_path = rel2abs('data/history.txt')
+    epoch = now()
+    method = request.method
+    # url = request.url
+    status_code = response.status_code
+    path = request.path
+    params = request.args
+    full_url = request.full_path
+    if full_url.endswith("?"):
+        full_url = full_url[:-1]
+    with open(log_path, 'a') as f:
+        f.write(f'{epoch} {method} {status_code} {full_url}\n')
+    connection = Connection("data/hateoas-history.db")
+    connection.execute(get_history_db_schema())
+    # connection.execute("INSERT INTO history (epoch, method, status_code, path) VALUES (?, ?, ?, ?)", (epoch, method, status_code, path))
+    connection.execute("INSERT INTO history (epoch, method, status_code, path) VALUES (?, ?, ?, ?)", (epoch, method, status_code, full_url))
+    connection.commit()
+
+    return response
 
 def get_download_filename(portionurl: PortionUrl, portion: Portion, video: dict) -> str:
     from slugify import slugify
@@ -83,6 +128,16 @@ def hhmmss(value):
     from waivek import Timestamp
     timestamp = Timestamp(value)
     return timestamp.hh_mm_ss
+
+@app.template_filter('abbreviate')
+def abbreviate(value):
+    from waivek.print_utils import abbreviate
+    return abbreviate(value)
+
+@app.template_filter('to_ist')
+def to_ist(epoch):
+    dt = datetime.fromtimestamp(epoch).astimezone(ZoneInfo("Asia/Kolkata"))
+    return dt.strftime("%a %b %e %I:%M%p %z")
 
 
 @app.route("/elements")
@@ -288,7 +343,10 @@ def view_portions(id):
         {% include "nav.html" %}
         {% for extra, portion in zip(extras, portions) %}
         <div class="box tall">
-            <div><a href="{{ url_for('view_portion', sequence_id=sequence['id'], portion_id=portion['id']) }}">View Portion with {{ extra['portionurls'] | length }} URL{{ 's' if extra['portionurls'] | length != 1 else '' }}</a></div>
+            <div>
+                <a href="{{ url_for('view_portion', sequence_id=sequence['id'], portion_id=portion['id']) }}">{{ url_for('view_portion', sequence_id=sequence['id'], portion_id=portion['id']) }}</a>
+                <span class="gray font-bold">({{ extra['portionurls'] | length }} URL{{ 's' if extra['portionurls'] | length != 1 else '' }})</span>
+            </div>
             <div>Portion by: {{ extra['video']['user_name'] }}, created {{ extra['video']['created_at_epoch'] | timeago }}, with a duration of: {{ portion['duration'] | hhmmss }} on video: {{ extra['video']['id'] }} offset: {{ extra['offset'] }}</div>
             <!-- <div>{{ portion['title'] }}</div> -->
             <form action="{{ url_for('update_portion', portion_id=portion['id']) }}" method="POST" class="tall">
@@ -369,23 +427,6 @@ def view_sequences():
     </main>
     {% endblock %}""", sequences=sequences, extras=extras, zip=zip)
 
-
-@app.route("/")
-def home():
-    with connection:
-        list_of_tables_to_select_1_from = [ 'sequences', 'portions', 'portionurls' ]
-        for table in list_of_tables_to_select_1_from:
-            connection.execute(f"SELECT 1 FROM {table}")
-    return render_template_string("""
-        {% extends "base.html" %}
-        {% block title %}Home{% endblock %}
-        {% block body %}
-        <main class="mono tall">
-            <h1>Home</h1>
-            {% include "nav.html" %}
-        </main>
-        {% endblock %}
-    """)
 
 def get_synced_videos(video_id, offset):
     cursor = videos_connection.execute("SELECT created_at_epoch + ? AS epoch, user_id FROM videos WHERE id = ?", (offset, video_id))
@@ -501,6 +542,29 @@ def form_create_portion():
     </main>
     {% endblock %}""", sequence_id=sequence_id, video=video)
 
+@app.route("/users_links_html/<user_id>")
+def users_links_html(user_id):
+    url = request.path
+    cursor = videos_connection.execute("SELECT user_id, user_name FROM videos WHERE user_id = ? LIMIT 1;", (user_id,))
+    user = dict(cursor.fetchone())
+    return render_template_string("""
+    <div class="box wide">
+        <div>{{ user['user_name'] }}</div>
+        <div>{{ user['user_id'] }}</div>
+
+        {% if url.startswith("/videos") %}
+        <span class="font-bold">Videos</span>
+        {% else %}
+        <a href="{{ url_for('videos', user_id=user['user_id']) }}">Videos</a>
+        {% endif %}
+
+        {% if url.startswith("/clips") %}
+        <span class="font-bold">Clips</span>
+        {% else %}
+        <a href="{{ url_for('clips', user_id=user['user_id']) }}">Clips</a>
+        {% endif %}
+    </div>""", user=user, url=url)
+
 @app.route("/videos/<id>")
 def video(id):
     cursor = connection.execute("SELECT * FROM sequences")
@@ -519,22 +583,27 @@ def video(id):
         <h1>Video</h1>
         {% include "nav.html" %}
         <div class="box tall">
+            <div class="tall">
+                <div class="wide">
+                    Sync to:
+                    <div class="wide separated">
+                        {% for sequence in sequences %}
+                        <div><a href="{{ url_for('sync_video_to_video', video_id=video['id'], sequence_id=sequence['id']) }}">{{ sequence['name'] }}</a></div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% if not sequences %}
+                <div>No sequences found, so we cannot create a portion</div>
+                <div><a href="{{ url_for('view_sequences') }}">Create a sequence</a></div>
+                {% endif %}
+            </div>
             <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
+            <div><a href="{{ video['url'] }}">{{ video['url'] }}</a></div>
             <div>{{ video['title'] }}</div>
             <div>
                 <img src="{{ thumbnail_url }}" alt="{{ video['title'] }}">
             </div>
             <div>{{ video }}</div>
-        </div>
-        <div class="box tall">
-            <!-- dynamic form for create_portion where sequence_id is selected via dropdown -->
-            {% for sequence in sequences %}
-            <div><a href="{{ url_for('form_create_portion', sequence_id=sequence['id'], video_id=video['id']) }}">Add to {{ sequence['name'] }}</a></div>
-            {% endfor %}
-            {% if not sequences %}
-            <div>No sequences found, so we cannot create a portion</div>
-            <div><a href="{{ url_for('view_sequences') }}">Create a sequence</a></div>
-            {% endif %}
         </div>
     </main>
     {% endblock %}""", video=video, sequences=sequences, thumbnail_url=thumbnail_url)
@@ -604,6 +673,10 @@ def videos():
         "total": total
     }
 
+    links_html = None
+    if user_id:
+        links_html = users_links_html(user_id)
+
     cursor = connection.execute("SELECT * FROM sequences")
     sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
 
@@ -614,6 +687,11 @@ def videos():
     <main class="mono tall">
         <h1>Videos</h1>
         {% include "nav.html" %}
+
+        {% if links_html %}
+        {{ links_html | safe }}
+        {% endif %}
+
         <!-- pagination controls -->
         <div class="box tall">
             <h3>Pagination</h3>
@@ -662,13 +740,12 @@ def videos():
             <div class="tall">
                 <div><a href="{{ url_for('video', id=video['id']) }}">View</a></div>
                 <div class="wide">
-
-                    <div>Sync to:</div>
-                    {% for sequence in sequences %}
-                    <div><a href="{{ url_for('sync_video_to_video', video_id=video['id'], sequence_id=sequence['id']) }}">{{ sequence['name'] }}</a></div>
-                    {% endfor %}
-
-                    {# <a href="{{ url_for('sync_video_to_video', video_id=video['id']) }}">Sync</a> #}
+                    Sync to:
+                    <div class="wide separated">
+                        {% for sequence in sequences %}
+                        <div><a href="{{ url_for('sync_video_to_video', video_id=video['id'], sequence_id=sequence['id']) }}">{{ sequence['name'] }}</a></div>
+                        {% endfor %}
+                    </div>
                 </div>
             </div>
             <div>Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
@@ -687,7 +764,7 @@ def videos():
         </div>
         {% endif %}
     </main>
-    {% endblock %}""", videos=videos, pagination=pagination, sequences=sequences)
+    {% endblock %}""", videos=videos, pagination=pagination, sequences=sequences, links_html=links_html)
 
 @app.route("/chat_downloads")
 def chat_downloads():
@@ -773,30 +850,33 @@ def downloads():
     </style>
         <h1>Downloads</h1>
         {% include "nav.html" %}
-        {% for sequence in sequences %}
         <div class="box tall">
-            <div>{{ sequence['name'] }} has {{ sequence['portions'].__len__() }} portion{{ 's' if sequence['portions'].__len__() != 1 else ''}}</div>
+        {% for sequence in sequences %}
             {% if sequence['portions'] %}
-            <ol>
                 {% for portion in sequence['portions'] %}
-                <li>
-                    <div>{{ portion['title'] }}</div>
-                    <div class="wide">
-                        {% for portionurl in portion['portionurls'] if portionurl['selected'] %}
-                        <div>{{ portionurl.user_id }}</div>
-                        {% endfor %}
-                    </div>
-                    <div class="gray">{{ portion.pretty() }}</div>
-                </li>
+                <div>{{ portion['title'] }}</div>
+                <div class="wide">
+                    {% for portionurl in portion['portionurls'] if portionurl['selected'] %}
+                    <div>{{ portionurl.user_id }}</div>
+                    {% endfor %}
+                </div>
+                <div class="gray">{{ portion.pretty() }}</div>
                 {% endfor %}:
-            </ol>
             {% endif %}
-            <div><a href="{{ url_for('downloads_sequence', sequence_id=sequence['id']) }}">Download {{ sequence['name'] }}</a></div>
-            <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
-        </div>
+            <div class="wide separated">
+                <span>{{ sequence['name'] }}</span>
+                <a href="{{ url_for('downloads_sequence', sequence_id=sequence['id']) }}">Downloads</a>
+                <a href="{{ url_for('view_portions', id=sequence['id']) }}">View {{ sequence['portions'].__len__() }} Portion{{ 's' if sequence['portions'].__len__() != 1 else '' }}</a>
+            </div>
         {% endfor %}
+        </div>
     </main>
     {% endblock %}""", sequences=sequences)
+
+def portionurl_id_to_docker_command(portionurl_id):
+    hostname = socket.gethostname()
+    downloads_folder = os.path.join(os.path.dirname(__file__), "static", "downloads")
+    return fr"docker cp {hostname}:{downloads_folder}/{portionurl_id}.mp4 C:\Users\vivek\Desktop\claude"
 
 @app.route("/downloads/<sequence_id>")
 def downloads_sequence(sequence_id):
@@ -804,6 +884,8 @@ def downloads_sequence(sequence_id):
     cursor = connection.execute("SELECT * FROM sequences WHERE id = ?", (sequence_id,))
     sequence = Sequence(**cursor.fetchone())
     worker_table = get_worker_info()
+    # docker cp d38142f948ef:/home/vivek/hateoas/hateoas-api.py C:\Users\vivek\Desktop\claude\
+
 
     return render_template_string("""
     {% extends "base.html" %}
@@ -811,10 +893,6 @@ def downloads_sequence(sequence_id):
     {% block body %}
     <main class="mono tall">
         <h1>Downloads {{ sequence['name'] }}</h1>
-        <style>
-        .pending { color: yellow; }
-        .complete { color: lightgreen; }
-        </style>
 
         {% include "nav.html" %}
         <div class="tall">
@@ -836,7 +914,7 @@ def downloads_sequence(sequence_id):
             {% endif %}
             </div>
             {% for portion in sequence['portions'] %}
-            <div class="box">
+            <div class="box tall">
                 <div>{{ portion.pretty() }}</div>
                 <ol class="tall">
                     {% for portionurl in portion.portionurls if portionurl['selected'] %}
@@ -846,6 +924,9 @@ def downloads_sequence(sequence_id):
                         <div>{{ D['user_name'] }} - {{ D['filename'] }} <span class="gray">{{ portionurl.id }}</span></div>
                         {% if downloaded(portionurl.id) %}
                         <div>Status: <span class="green">complete ({{ portionurl.id }})</span></div>
+                        <div>
+                            {{ portionurl_id_to_docker_command(portionurl.id) }}
+                        </div>
                         {% elif partially_downloaded(portionurl.id) %}
                         <div>Status: <span class="yellow">downloading ({{ portionurl.id }})</span></div>
                         {% else %}
@@ -871,15 +952,17 @@ def downloads_sequence(sequence_id):
                 <div><a href="{{ url_for('view_portion', sequence_id=sequence['id'], portion_id=portion['id']) }}">View Portion</a></div>
             </div>
 
+
             {% endfor %}
             <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
         </div>
     </main>
-    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded, worker_table=worker_table, downloaded=downloaded, partially_downloaded=partially_downloaded)
+    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded, worker_table=worker_table, downloaded=downloaded, partially_downloaded=partially_downloaded, portionurl_id_to_docker_command=portionurl_id_to_docker_command)
 
 
 @app.route("/get_synced_videos_html/<video_id>/<offset>")
 def get_synced_videos_html(video_id, offset):
+    sequence_id = request.args.get("sequence_id")
     offset = int(offset)
     videos = get_synced_videos(video_id, offset)
     cursor = videos_connection.execute("SELECT created_at_epoch FROM videos WHERE id = ?", (video_id,))
@@ -894,10 +977,16 @@ def get_synced_videos_html(video_id, offset):
             {{ video.id }} @ {{ (int(epoch) - int(video.created_at_epoch)) | hhmmss}}
         </a> 
         -
-        <a href="{{ url_for('sync_video_to_video', video_id=video.id) }}">Sync</a>
+        <a href="{{ url_for('sync_video_to_video', video_id=video.id, sequence_id=sequence_id) }}">Sync</a>
         - {{ video.user_name }}
     </div>
-    {% endfor %}""", videos=videos, epoch=epoch, int=int)
+    {% endfor %}
+    {% if not videos %}
+    <div>
+        No other videos for video {{ video_id }} @ {{ offset | hhmmss }}
+    </div>
+    {% endif %}
+    """, videos=videos, epoch=epoch, int=int, sequence_id=sequence_id, video_id=video_id, offset=offset)
 
 @app.route("/add_video_to_chat_download_queue/<video_id>", methods=["POST"])
 def add_video_to_chat_download_queue(video_id):
@@ -907,10 +996,26 @@ def add_video_to_chat_download_queue(video_id):
     connection.commit()
     return redirect(request.referrer)
 
+@app.route("/chapters/<video_id>")
+def chapters(video_id):
+    if not usable("data/chapters.json"):
+        write({}, "data/chapters.json")
+    chapters_dict = read("data/chapters.json")
+    if video_id not in chapters_dict:
+        return []
+    chapters_table = chapters_dict[video_id]
+    assert isinstance(chapters_table, list)
+    return chapters_table
+
 @app.route("/sync_video_to_video")
-def sync_video_to_video():
+def sync_video_to_video(clip_id=None):
     sequence_id = request.args.get("sequence_id")
     video_id = request.args.get("video_id")
+    clip_id = request.args.get("clip_id")
+    clip = None
+    if clip_id:
+        cursor = clips_connection.execute("SELECT * FROM clips WHERE id = ?", (clip_id,))
+        clip = dict(cursor.fetchone())
     cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?", (video_id,))
     video = dict(cursor.fetchone())
 
@@ -938,7 +1043,67 @@ def sync_video_to_video():
 
     synced_videos_html = get_synced_videos_html(video_id, 0)
 
-    return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html, sequence_id=sequence_id)
+    graph_payload['chapters'] = chapters(video_id)
+
+    return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html, sequence_id=sequence_id, clip=clip)
+
+@app.route("/add_game")
+def add_game():
+    game_id = request.args.get("game_id")
+    if "removed_game_ids" in session and game_id in session["removed_game_ids"]:
+        session["removed_game_ids"] = [ game_id for game_id in session["removed_game_ids"] if game_id != game_id ]
+    return redirect(request.referrer)
+
+@app.route("/remove_game")
+def remove_game():
+    game_id = request.args.get("game_id")
+    if "removed_game_ids" not in session:
+        session["removed_game_ids"] = []
+    session["removed_game_ids"] = list(set(session["removed_game_ids"] + [game_id]))
+    return redirect(request.referrer)
+
+@app.route("/clips/<clip_id>")
+def clip(clip_id):
+    cursor = clips_connection.cursor()
+    cursor.execute("SELECT * FROM clips WHERE id = ?", (clip_id,))
+    clip = dict(cursor.fetchone())
+    cursor = videos_connection.cursor()
+    cursor.execute("SELECT * FROM videos WHERE id = ?", (clip["video_id"],))
+    video = dict(cursor.fetchone())
+    cursor = connection.cursor()
+    cursor.execute("SELECT * FROM sequences")
+    sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
+
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Clip{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Clip</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+            <div>Clip of Video by: {{ video['user_name'] }}, created {{ video['created_at_epoch'] | timeago }}, with a duration of: {{ video['duration'] | hhmmss }}</div>
+            <div>Offset: {{ (clip['vod_offset'] - clip['duration']) | hhmmss }} ({{ clip['vod_offset'] - clip['duration'] }})</div>
+            <div><a href="{{ clip['url'] }}">{{ clip['url'] }}</a></div>
+            <div class="wide">
+                Sync to:
+                <div class="wide separated">
+                {% for sequence in sequences %}
+                <div><a href="{{ url_for('sync_video_to_video', video_id=clip['video_id'], sequence_id=sequence['id'], clip_id=clip['id']) }}">{{ sequence['name'] }}</a></div>
+                {% endfor %}
+                </div>
+            </div>
+            <div>{{ video['title'] }}</div>
+            <div>
+                <a href="{{ video['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}">
+                <img src="{{ video['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}" alt="{{ video['title'] }}">
+                </a>
+            </div>
+            <div>{{ clip }}</div>
+        </div>
+    </main>
+    {% endblock %}""", clip=clip, video=video, sequences=sequences)
+
 
 @app.route("/clips")
 def clips():
@@ -957,6 +1122,11 @@ def clips():
             </div>
         </main>
         {% endblock %}""")
+
+    cursor = videos_connection.cursor()
+    cursor.execute("SELECT user_id, user_name FROM videos GROUP BY user_id ORDER BY user_name")
+    users = [dict(row) for row in cursor.fetchall()]
+
     start_date = request.args.get("start_date", None)
     end_date = request.args.get("end_date", None)
     user_id = request.args.get("user_id", None)
@@ -966,19 +1136,24 @@ def clips():
     offset = (page - 1) * limit
 
     query = "SELECT * FROM clips"
+    count_query = "SELECT COUNT(*) FROM clips"
     conditions = []
     parameters = []
     if start_date:
         conditions.append("created_at_epoch >= ?")
-        parameters.append(start_date)
+        parameters.append(datetime.strptime(start_date, "%Y-%m-%d").astimezone(ZoneInfo("UTC")).timestamp())
     if end_date:
         conditions.append("created_at_epoch <= ?")
-        parameters.append(end_date)
+        parameters.append(datetime.strptime(end_date, "%Y-%m-%d").astimezone(ZoneInfo("UTC")).timestamp())
     if user_id:
         conditions.append("broadcaster_id = ?")
         parameters.append(user_id)
+    if "removed_game_ids" in session and session["removed_game_ids"]:
+        conditions.append("game_id NOT IN ({})".format(",".join(session["removed_game_ids"])))
     if conditions:
         query += " WHERE " + " AND ".join(conditions)
+        count_query += " WHERE " + " AND ".join(conditions)
+    count_parameters = parameters[:]
     query += " ORDER BY view_count DESC"
     query += " LIMIT ? OFFSET ?"
     parameters.extend([limit, offset])
@@ -986,12 +1161,13 @@ def clips():
 
     clips = [dict(clip) for clip in cursor.fetchall()]
 
-
-    cursor.execute("SELECT COUNT(*) FROM clips")
+    cursor.execute(count_query, count_parameters)
     total = cursor.fetchone()[0]
     page_count = total // limit
     if total % limit:
         page_count += 1
+    if page_count == 0:
+        page = 0
 
     pagination = {
         "currentPage": page,
@@ -1004,8 +1180,16 @@ def clips():
         "total": total
     }
 
+    links_html = None
+    if user_id:
+        links_html = users_links_html(user_id)
+
     cursor = connection.execute("SELECT * FROM sequences")
     sequences = [ Sequence(**seq) for seq in cursor.fetchall() ]
+
+    cursor = games_connection.cursor()
+    cursor.execute("SELECT id, name FROM games")
+    game_id_to_name = { row['id']: row['name'] for row in cursor.fetchall() }
 
     return render_template_string("""
     {% extends "base.html" %}
@@ -1014,24 +1198,53 @@ def clips():
     <main class="mono tall">
         <h1>Clips</h1>
         {% include "nav.html" %}
+
+        {% if links_html %}
+        {{ links_html | safe }}
+        {% endif %}
+
+        {% if "removed_game_ids" in session and session["removed_game_ids"] %}
+        <div class="box tall">
+            <div>
+                <span>Filtered out games:</span>
+                {% for game_id in session["removed_game_ids"] %}
+                <span>{{ game_id_to_name[game_id] }}</span>
+                {% endfor %}
+                </div>
+                <div>{{ session["removed_game_ids"] | length }} game{{ "s" if session["removed_game_ids"].__len__() != 1 else "" }} filtered out, go to <a href="{{ url_for('settings') }}">Settings</a> to clear</div>
+            </div>
+
+        </div>
+        {% endif %}
+
         <div class="box tall">
             <h3>Pagination</h3>
             <div>
+                <div>
+                    <div>Start Date: {{ start_date }}</div>
+                    <div>End Date: {{ end_date }}</div>
+                </div>
                 <form action="{{ url_for('clips') }}" method="GET">
-                    <input type="text" name="start_date" placeholder="start_date">
-                    <input type="text" name="end_date" placeholder="end_date">
-                    <input type="text" name="user_id" placeholder="user_id">
+                    <input type="date" name="start_date" placeholder="start_date" value="{{ start_date }}">
+                    <input type="date" name="end_date" placeholder="end_date" value="{{ end_date }}">
+                    {# <input type="text" name="user_id" placeholder="user_id" value="{{ user_id }}"> #}
+                    <select name="user_id">
+                        <option value="">All</option>
+                        {% for user in users %}
+                        <option value="{{ user['user_id'] }}" {% if user_id == user['user_id'] %}selected{% endif %}>{{ user['user_name'] }}</option>
+                        {% endfor %}
+                    </select>
                     <button type="submit">Filter</button>
                 </form>
             </div>
             <div>
-                {% if pagination['isFirstPage'] %}
+                {% if pagination['isFirstPage'] or pagination['pageCount'] == 0 %}
                 <span class="gray">First</span>
                 {% else %}
-                <a href="{{ url_for('videos', page=1) }}">First</a>
+                <a href="{{ url_for('clips', page=1, start_date=start_date, end_date=end_date, user_id=user_id) }}">First</a>
                 {% endif %}
                 {% if pagination['prev'] %}
-                <a href="{{ url_for('videos', page=pagination['prev']) }}">Prev</a>
+                <a href="{{ url_for('clips', page=pagination['prev'], start_date=start_date, end_date=end_date, user_id=user_id) }}">Prev</a>
                 {% else %}
                 <span class="gray">Prev</span>
                 {% endif %}
@@ -1039,14 +1252,14 @@ def clips():
                 <span>Page {{ pagination['currentPage'] }} of {{ pagination['pageCount'] }}</span>
 
                 {% if pagination['next'] %}
-                <a href="{{ url_for('videos', page=pagination['next']) }}">Next</a>
+                <a href="{{ url_for('clips', page=pagination['next'], start_date=start_date, end_date=end_date, user_id=user_id) }}">Next</a>
                 {% else %}
                 <span class="gray">Next</span>
                 {% endif %}
                 {% if pagination['isLastPage'] %}
                 <span class="gray">Last</span>
                 {% else %}
-                <a href="{{ url_for('videos', page=pagination['pageCount']) }}">Last</a>
+                <a href="{{ url_for('clips', page=pagination['pageCount'], start_date=start_date, end_date=end_date, user_id=user_id) }}">Last</a>
                 {% endif %}
             </div>
             <div>
@@ -1055,17 +1268,33 @@ def clips():
         </div>
         {% for clip in clips %}
         <div class="box tall">
+            <div class="font-bold">{{ clip['title'] }}</div>
+            <div class="wide separated">
+                <div>{{ clip['broadcaster_name'] }}</div>
+                <div>{{ clip['view_count'] | abbreviate }} views</div>
+                <div>{{ clip['created_at_epoch'] | timeago }}</div>
+                <div>{{ clip['duration'] | hhmmss }}</div>
+                {% if clip['game_id'] %}
+                <div>
+                    <span>{{ game_id_to_name[clip['game_id']] }}</span>
+                    <a href="{{ url_for('remove_game', game_id=clip['game_id']) }}">Remove</a>
+                </div>
+                {% endif %}
+            </div>
             <div class="tall">
-                {# <div><a href="{{ url_for('clip', id=clip['id']) }}">View</a></div> #}
+                <div>
+                    <a href="{{ clip['url'] }}">Twitch</a>
+                    <a href="{{ url_for('clip', clip_id=clip['id']) }}">{{ url_for('clip', clip_id=clip['id']) }}</a>
+                </div>
                 <div class="wide">
-                    <div>Sync to:</div>
+                    Sync to:
+                    <div class="wide separated">
                     {% for sequence in sequences %}
-                    {# <div><a href="{{ url_for('sync_clip_to_video', clip_id=clip['id'], sequence_id=sequence['id']) }}">{{ sequence['name'] }}</a></div> #}
+                    <div><a href="{{ url_for('sync_video_to_video', video_id=clip['video_id'], sequence_id=sequence['id'], clip_id=clip['id']) }}">{{ sequence['name'] }}</a></div>
                     {% endfor %}
+                    </div>
                 </div>
             </div>
-            <div>Clip of: {{ clip['broadcaster_name'] }}, created {{ clip['created_at_epoch'] | timeago }}, with a duration of: {{ clip['duration'] | hhmmss }}</div>
-            <div>{{ clip['title'] }}</div>
             <div>
                 <a href="{{ clip['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}">
                     <img height=150 src="{{ clip['thumbnail_url'].replace('%{width}', '640').replace('%{height}', '360') }}" alt="{{ clip['title'] }}">
@@ -1080,9 +1309,7 @@ def clips():
         </div>
         {% endif %}
     </main>
-    {% endblock %}""", clips=clips, pagination=pagination, sequences=sequences)
-
-
+    {% endblock %}""", clips=clips, pagination=pagination, sequences=sequences, start_date=start_date, end_date=end_date, user_id=user_id, users=users, links_html=links_html, game_id_to_name=game_id_to_name, session=session)
 
 
 
@@ -1095,7 +1322,7 @@ def clips():
 
 @app.route("/users_video")
 def users_video():
-    cursor = videos_connection.execute("SELECT user_id, user_name FROM videos GROUP BY user_id")
+    cursor = videos_connection.execute("SELECT user_id, user_name FROM videos GROUP BY user_id ORDER BY user_name")
     users = [dict(row) for row in cursor.fetchall()]
     return render_template_string("""
     {% extends "base.html" %}
@@ -1104,15 +1331,17 @@ def users_video():
     <main class="mono tall">
         <h1>Users</h1>
         {% include "nav.html" %}
-        <div class="box tall">
-            {% for user in users %}
-            <div class="wide">
-                <span>{{ user['user_name'] }}</span>
-                <span>{{ user['user_id'] }}</span>
-                <a href="{{ url_for('videos', user_id=user['user_id']) }}">Videos</a>
-                <a href="{{ url_for('clips', user_id=user['user_id']) }}">Clips</a>
+        <div class="box">
+            <div class="grid cols-4">
+                {% for user in users %}
+                <div class="">
+                    <span>{{ user['user_name'] }}</span>
+                    <span>{{ user['user_id'] }}</span>
+                    <a href="{{ url_for('videos', user_id=user['user_id']) }}">Videos</a>
+                    <a href="{{ url_for('clips', user_id=user['user_id']) }}">Clips</a>
+                </div>
+                {% endfor %}
             </div>
-            {% endfor %}
         </div>
     </main>
     {% endblock %}""", users=users)
@@ -1185,6 +1414,114 @@ def readstring(path):
     with open(path, "rb") as f:
         string = f.read().decode("utf-8")
     return string
+
+@app.route("/history")
+def history():
+    # get available routes
+    routes = []
+    for rule in app.url_map.iter_rules():
+        if not isinstance(rule.methods, set):
+            raise ValueError(f"Route {rule} has no methods")
+        rule.methods.discard('OPTIONS')
+        rule.methods.discard('HEAD')
+        routes.append({ 'path': str(rule), 'methods': rule.methods })
+
+    connection = Connection("data/hateoas-history.db")
+    # path shouldn’t end with '.css', '.ttf'
+    where_query = "WHERE path NOT LIKE '%.css' AND path NOT LIKE '%.ttf' AND path NOT LIKE '%.ico'"
+    limit = 30
+    results_query = "SELECT MAX(epoch) AS epoch, path FROM history " + where_query + f" GROUP BY path ORDER BY epoch DESC LIMIT {limit};"
+    stats_query = "SELECT COUNT(DISTINCT path) FROM history " + where_query + ";"
+    cursor = connection.execute(results_query)
+    results = [ (row[0], row[1]) for row in cursor.fetchall() ]
+    count = connection.execute(stats_query).fetchone()[0]
+    connection.close()
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}History{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>History</h1>
+        {% include "nav.html" %}
+        <style>.list-number { width: 2ch; text-align: right; }</style>
+        <div class="box tall">
+            <p>Total unique requests: {{ count }}</p>
+            {% for epoch, path in results %}
+                <div class="tall-0">
+                    <div class="wide">
+                        <span class="font-bold gray list-number">{{ loop.index }}</span>
+                        <a href="{{ path }}">{{ path }}</a>
+                        <span class="gray" title="{{ epoch }}">({{ epoch | timeago }})</span>
+                    </div>
+                </div>
+            {% endfor %}
+            {% if count > limit %}
+                <div class="gray">.. {{ count - limit }} more requests not shown</div>
+            {% endif %}
+        </div>
+    </main>
+    {% endblock %}""", results=results, count=count, limit=limit)
+
+        
+@app.route('/select_rectangle/<int:portionurl_id>')
+def select_rectangle(portionurl_id):
+    video_path = f"/static/downloads/{portionurl_id}.mp4"
+    return render_template('select_rectangle.html', video_path=video_path, portionurl_id=portionurl_id)
+
+@app.route('/get_coordinates', methods=['POST'])
+def get_coordinates():
+    data = request.json
+    return {"message": "Coordinates received", "coordinates": data}
+
+@app.route("/settings")
+def settings():
+    cursor = games_connection.cursor()
+    removed_game_ids = session.get("removed_game_ids", [])
+    cursor.execute("SELECT id, name FROM games WHERE id IN ({})".format(",".join(removed_game_ids)))
+    removed_games = [dict(row) for row in cursor.fetchall()]
+    return render_template_string("""
+    {% extends "base.html" %}
+    {% block title %}Settings{% endblock %}
+    {% block body %}
+    <main class="mono tall">
+        <h1>Settings</h1>
+        {% include "nav.html" %}
+        <div class="box tall">
+            <h2>Removed Games (for /clips view)</h2>
+            {% for game in removed_games %}
+            <div>
+                <span>{{ game['name'] }}</span>
+                <a href="{{ url_for('add_game', game_id=game['id']) }}">Add</a>
+            </div>
+            {% endfor %}
+            {% if not removed_games %}
+            <div>No games removed</div>
+            {% endif %}
+        </div>
+        <div class="box">
+            {{ session }}
+        </div>
+    </main>
+    {% endblock %}""", session=session, removed_games=removed_games)
+
+
+
+@app.route("/")
+def home():
+    with connection:
+        list_of_tables_to_select_1_from = [ 'sequences', 'portions', 'portionurls' ]
+        for table in list_of_tables_to_select_1_from:
+            connection.execute(f"SELECT 1 FROM {table}")
+    return render_template_string("""
+        {% extends "base.html" %}
+        {% block title %}Home{% endblock %}
+        {% block body %}
+        <main class="mono tall">
+            <h1>Home</h1>
+            {% include "nav.html" %}
+        </main>
+        {% endblock %}
+    """)
 
 def main():
     sql_filename = rel2abs("main.sql")

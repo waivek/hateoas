@@ -28,3 +28,7 @@ pandas
 
 # videos.py
 isodate
+diskcache
+
+# pov_isolation.py
+opencv-python
