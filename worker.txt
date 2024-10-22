@@ -1,0 +1,71 @@
+
+MINIMAL
+
+no locks as of now
+inputs [done]
+logs?
+
+def log_file_timestamp():
+    return datetime.now(tzlocal.get_localzone()).replace(microsecond=0).strftime("%Y-%m-%d %H-%M-%S %Z")
+
+def log_job(exit_code: int, task_identifier: str, filename: str, log_file: str):
+    timestamp = log_file_timestamp()
+    with open(os.path.expanduser("~/worker_data/jobs.log"), "a") as f:
+        f.write(f"[{now}] {exit_code} {task_identifier} {filename} {log_file}\n")
+
+--- PortionURL ---
+
+@ffmpeg @yt_dlp
+worker_download_portionurl_video(portionurl_id)
+    portionurl_id = "SELECT portionurl_id FROM portionurl WHERE selected = 1 LIMIT 1;"
+    if portionurl_id && not downloaded(portionurl_id) && not locked(portionurl_id)
+        exit_code = download(portionurl_id)
+        log(f"{exit_code} {portionurl_id}")
+    end
+
+@ffmpeg
+worker_encode_portionurl_video(portionurl_id)
+    portionurl_id = "SELECT portionurl_id FROM portionurl WHERE selected = 1 LIMIT 1;"
+    if portionurl_id && downloaded(portionurl_id) && not encoded(portionurl_id)
+        exit_code = encode(portionurl_id)
+        log(f"{exit_code} {portionurl_id}")
+    end
+
+@ffmpeg
+worker_crop_portionurl_video(portionurl_id)
+    portionurl_id = "SELECT portionurl_id FROM portionurl WHERE selected = 1 LIMIT 1;"
+    if portionurl_id && downloaded(portionurl_id) && not cropped(portionurl_id)
+        exit_code = crop(portionurl_id)
+        log(f"{exit_code} {portionurl_id}")
+    end
+
+--- PortionURL [END] ---
+
+--- CHAT ---
+
+worker_download_chat(video_id)
+    video_ids = "SELECT video_id FROM queue_chat;"
+    video_ids = [ video_id for video_id if not is_chat_downloaded(video_id) ]
+    if video_ids:
+        exit_code = download_chat(video_ids[0])
+        log(f"{exit_code} {video_ids[0]}")
+    end
+
+worker_chat_to_offset(video_id)
+    video_ids = "SELECT video_id FROM queue_chat;"
+    video_ids = [ video_id for video_id if is_chat_downloaded(video_id) and not is_chat_offset_downloaded(video_id) ]
+    for video_id in video_ids:
+        exit_code = chat_to_offset(video_id)
+        log(f"{exit_code} {video_id}")
+    end
+
+worker_download_chapters(video_id)
+    video_ids = "SELECT video_id FROM queue_chat;"
+    video_ids = [ video_id for video_id if is_chat_downloaded(video_id) and not is_chapters_downloaded(video_id) ]
+    if video_ids:
+        exit_code = download_chapters(video_ids[0])
+        log(f"{exit_code} {video_ids[0]}")
+    end
+
+--- CHAT [END] ---
+
