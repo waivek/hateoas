@@ -1,13 +1,12 @@
-
-241017 - sync   - Add feature to manually sync a specific pov video
-241017 - worker - Create worker_pov_crops.py
-241017 - worker - Create worker_fix_premiere_pro.py or inline into main video downloader
-241017 - worker - Create worker_chapters.py
-241017 - worker - Autostart worker for offset conversion
-241017 - ffmpeg - ffmpeg worker should be able to update on progress
-241009 - schema - Make it such that deleting `portion` delets all `portionurl`
-✓ Add flush to print statements that print yt-dlp command and metadata info.
-✓ When selecting portionurl_ids, filter out non `selected`.
-✓ We are getting false negatives for downloaded files which have the extension `webm`.
-✓ Silence "another instance is running"
-Add case for youtube downloading as high bitrate is very slow.
+  241017 - sync         - Add feature to manually sync a specific pov video
+  241017 - worker       - Create worker_pov_crops.py
+  241017 - worker       - Create worker_fix_premiere_pro.py or inline into main video downloader
+  241017 - worker       - Create worker_chapters.py
+  241017 - worker       - Autostart worker for offset conversion
+  241017 - ffmpeg       - ffmpeg worker should be able to update on progress
+  241009 - schema       - Make it such that deleting `portion` delets all `portionurl`
+✓ 240510 - worker       - Add flush to print statements that print yt-dlp command and metadata info.
+✓ 240510 - ???          -  When selecting portionurl_ids, filter out non `selected`.
+✓ 240510 - worker_utils - We are getting false negatives for downloaded files which have the extension `webm`.
+✓ 240510 - ???          -  Silence "another instance is running"
+  240510 - worker       - Add case for youtube downloading as high bitrate is very slow.

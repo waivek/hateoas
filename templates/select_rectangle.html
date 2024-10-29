@@ -1,20 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Select Rectangle</title>
+{% extends "base.html" %}
+{% block title %}Select Rectangle{% endblock %}
+{% block head %}
     <style>
         #video-container {
             position: relative;
             display: inline-block;
             max-width: 100%;
-            max-height: 80vh;
+            max-height: 60vh;
         }
         #video {
             width: 100%;
             height: auto;
-            max-height: 80vh;
+            max-height: 60vh;
             object-fit: contain;
         }
         #selection-rectangle {
@@ -24,21 +21,30 @@
             display: none;
         }
         #ffmpeg-command, #selection-info {
-            margin-top: 10px;
             word-wrap: break-word;
         }
     </style>
-</head>
-<body>
+{% endblock %}
+{% block body %}
     <div id="video-container">
-        <video id="video" controls>
+        <video id="video">
             <source src="{{ video_path }}" type="video/mp4">
             Your browser does not support the video tag.
         </video>
         <div id="selection-rectangle"></div>
     </div>
-    <div id="selection-info"></div>
-    <div id="ffmpeg-command"></div>
+    <div class="tall">
+        <div id="selection-info"></div>
+        <div id="ffmpeg-command"></div>
+        <form id="crop-form" action="{{ url_for('add_to_crop_queue') }}" method="POST">
+            <input type="hidden" name="portionurl_id" value="{{ portionurl_id }}">
+            <input type="hidden" name="x" id="crop-x">
+            <input type="hidden" name="y" id="crop-y">
+            <input type="hidden" name="width" id="crop-width">
+            <input type="hidden" name="height" id="crop-height">
+            <button type="submit" id="submit-button">Submit Crop</button>
+        </form>
+    </div>
 
     <script>
         const video = document.getElementById('video');
@@ -50,6 +56,7 @@
 
         let isDrawing = false;
         let startX, startY;
+        let currentX, currentY; // Declare currentX and currentY here
         let videoScale = 1;
 
         video.addEventListener('loadedmetadata', function() {
@@ -64,9 +71,13 @@
             console.log(`Video scale: ${videoScale}`);
         }
 
+        {# container.addEventListener('mousedown', startDrawing); #}
+        {# container.addEventListener('mousemove', draw); #}
+        {# container.addEventListener('mouseup', stopDrawing); #}
+
         container.addEventListener('mousedown', startDrawing);
-        container.addEventListener('mousemove', draw);
-        container.addEventListener('mouseup', stopDrawing);
+        window.addEventListener('mousemove', draw); // Change this line to window
+        window.addEventListener('mouseup', stopDrawing); // Change this line to window
 
         function startDrawing(e) {
             isDrawing = true;
@@ -83,8 +94,13 @@
         function draw(e) {
             if (!isDrawing) return;
             const rect = video.getBoundingClientRect();
-            let currentX = (e.clientX - rect.left) * videoScale;
-            let currentY = (e.clientY - rect.top) * videoScale;
+            
+            // Ensure the cursor is still inside the video bounds, otherwise constrain it
+            currentX = Math.min(Math.max(e.clientX, rect.left), rect.right);
+            currentY = Math.min(Math.max(e.clientY, rect.top), rect.bottom);
+            
+            currentX = (currentX - rect.left) * videoScale;
+            currentY = (currentY - rect.top) * videoScale;
 
             let width = currentX - startX;
             let height = currentY - startY;
@@ -102,6 +118,26 @@
             isDrawing = false;
         }
 
+        window.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                cancelSelection();
+            }
+        });
+
+        function cancelSelection() {
+            if (isDrawing) {
+                // Cancel the current selection in progress
+                isDrawing = false;
+                rectangle.style.display = 'none';
+                console.log('Selection canceled');
+            } else {
+                // If not in selection, just hide the rectangle
+                rectangle.style.display = 'none';
+                console.log('Rectangle removed');
+            }
+        }
+
+
         function updateFFmpegCommand(x1, y1, x2, y2) {
             let left = Math.round(Math.min(x1, x2));
             let top = Math.round(Math.min(y1, y2));
@@ -112,9 +148,9 @@
             width = width - (width % 2);
             height = height - (height % 2);
 
-            const ffmpegCommand = `ffmpeg -i ${portionurlId}.mp4 -filter:v "crop=${width}:${height}:${left}:${top}" -c:a copy output_${portionurlId}_cropped.mp4`;
+            const ffmpegCommand = `ffmpeg -i ${portionurlId}.mp4 -filter:v "crop=${width}:${height}:${left}:${top}" -c:a copy crops/${portionurlId}.mp4`;
 
-            ffmpegCommandDisplay.textContent = `FFmpeg command: ${ffmpegCommand}`;
+            ffmpegCommandDisplay.textContent = `${ffmpegCommand}`;
             selectionInfoDisplay.textContent = `Selection: x=${left}, y=${top}, width=${width}, height=${height}`;
 
             // Send command to the server (optional)
@@ -129,6 +165,27 @@
             .then(data => console.log(data))
             .catch((error) => console.error('Error:', error));
         }
+
+        document.getElementById('crop-form').addEventListener('submit', function(event) {
+            event.preventDefault(); // Prevent the default form submission
+
+            const left = Math.round(Math.min(startX, currentX));
+            const top = Math.round(Math.min(startY, currentY));
+            const width = Math.round(Math.abs(currentX - startX));
+            const height = Math.round(Math.abs(currentY - startY));
+
+            // Ensure dimensions are even (required by some codecs)
+            const evenWidth = width - (width % 2);
+            const evenHeight = height - (height % 2);
+
+            // Set the values in the hidden inputs
+            document.getElementById('crop-x').value = left;
+            document.getElementById('crop-y').value = top;
+            document.getElementById('crop-width').value = evenWidth;
+            document.getElementById('crop-height').value = evenHeight;
+
+            // Submit the form
+            this.submit();
+        });
     </script>
-</body>
-</html>
+{% endblock %}

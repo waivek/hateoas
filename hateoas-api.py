@@ -2,7 +2,7 @@
 from datetime import datetime, timezone
 import time
 from zoneinfo import ZoneInfo
-from flask import request
+from flask import jsonify, request
 from flask import render_template_string
 from flask import render_template
 from flask import Flask
@@ -14,7 +14,9 @@ from dbutils import Connection
 from Types import Sequence, Portion, PortionUrl
 from jsonfile import usable
 from portionurl_to_download_path import downloaded, partially_downloaded
-from worker_utils import get_graph_payloads_downloads_folder, get_offsets_downloads_folder, has_chat_part_file, is_chat_downloaded
+from worker_utils import get_download_filename, get_graph_payloads_downloads_folder, get_offsets_downloads_folder, has_chat_part_file, is_chat_downloaded, portionurl_id_to_filename
+from worker_encode_video import encoded
+from worker_crop_video import cropped, in_crop_queue
 from typing import TypedDict
 from waivek import read, rel2abs, write
 import os.path
@@ -24,6 +26,7 @@ import socket
 app = Flask(__name__)
 app.secret_key = 'flash'
 app.config['Access-Control-Allow-Origin'] = '*'
+# app.jinja_env.globals.update(now=datetime.now)
 CORS(app)
 
 connection = Connection('data/main.db')
@@ -71,17 +74,6 @@ def log_request(response):
 
     return response
 
-def get_download_filename(portionurl: PortionUrl, portion: Portion, video: dict) -> str:
-    from slugify import slugify
-    order = portion.order
-    order_padded = str(order).zfill(2)
-    user_name = video["user_name"]
-    title = portion.title
-    title_slug = slugify(title, separator="_")
-    video_id = video["id"]
-    offset = portion.epoch - video["created_at_epoch"]
-    offset_hhmmss = hhmmss(offset)
-    return ".".join([order_padded, title_slug, user_name, video_id, offset_hhmmss, "mp4"])
 
 
 def portionurl_downloaded(portionurl: PortionUrl) -> bool:
@@ -202,13 +194,6 @@ def select_portionurl(sequence_id, portion_id, portionurl_id):
 
 
     return redirect(url_for("view_portion", sequence_id=sequence_id, portion_id=portion_id))
-
-@app.route("/downloads/<download_id>", methods=["POST"])
-def set_download_status(download_id):
-    status = request.form["status"]
-    with connection:
-        connection.execute("UPDATE downloads SET status = ? WHERE id = ?", (status, download_id))
-    return redirect(request.referrer)
 
 @app.route("/sequences/<int:sequence_id>/portions/<int:portion_id>/view", methods=["GET"])
 def view_portion(sequence_id, portion_id):
@@ -806,8 +791,8 @@ def chat_downloads():
             {% if worker_table | length == 0 %}
             <div class="error">No workers found</div>
             {% endif %}
-            {% for row in queue_chat %}
             <ol>
+                {% for row in queue_chat %}
                 <li>
                     <div>
                         <div>
@@ -829,12 +814,19 @@ def chat_downloads():
                         {% endif %}
                     </div>
                 </li>
+                {% endfor %}
             </ol>
-            {% endfor %}
         </div>
     </main>
     {% endblock %}""", queue_chat=queue_chat, worker_table=worker_table, is_chat_downloaded=is_chat_downloaded, has_chat_part_file=has_chat_part_file, video_id_to_pct=video_id_to_pct, localtime_hhmmss=localtime_hhmmss, video_id_to_video=video_id_to_video)
 
+
+@app.route("/downloads/<download_id>", methods=["POST"])
+def set_download_status(download_id):
+    status = request.form["status"]
+    with connection:
+        connection.execute("UPDATE downloads SET status = ? WHERE id = ?", (status, download_id))
+    return redirect(request.referrer)
 
 @app.route("/downloads")
 def downloads():
@@ -852,6 +844,7 @@ def downloads():
         {% include "nav.html" %}
         <div class="box tall">
         {% for sequence in sequences %}
+            {#
             {% if sequence['portions'] %}
                 {% for portion in sequence['portions'] %}
                 <div>{{ portion['title'] }}</div>
@@ -861,8 +854,9 @@ def downloads():
                     {% endfor %}
                 </div>
                 <div class="gray">{{ portion.pretty() }}</div>
-                {% endfor %}:
+                {% endfor %}
             {% endif %}
+            #}
             <div class="wide separated">
                 <span>{{ sequence['name'] }}</span>
                 <a href="{{ url_for('downloads_sequence', sequence_id=sequence['id']) }}">Downloads</a>
@@ -885,7 +879,6 @@ def downloads_sequence(sequence_id):
     sequence = Sequence(**cursor.fetchone())
     worker_table = get_worker_info()
     # docker cp d38142f948ef:/home/vivek/hateoas/hateoas-api.py C:\Users\vivek\Desktop\claude\
-
 
     return render_template_string("""
     {% extends "base.html" %}
@@ -923,26 +916,48 @@ def downloads_sequence(sequence_id):
                         
                         <div>{{ D['user_name'] }} - {{ D['filename'] }} <span class="gray">{{ portionurl.id }}</span></div>
                         {% if downloaded(portionurl.id) %}
-                        <div>Status: <span class="green">complete ({{ portionurl.id }})</span></div>
+                        <div>
+                            <span>Download Status:</span>
+                            <span class="green">downloaded</span>
+                            {% set download_filename = str(portionurl.id) + ".mp4" %}
+                            <a href="/static/downloads/{{ download_filename }}">{{ download_filename }}</a>
+                        </div>
+                        {% if encoded(portionurl.id) %}
+                        <div>
+                            <span>Encode Status:</span> 
+                            <span class="green">encoded</span>
+                            {% set encode_filename = portionurl_id_to_filename(portionurl.id) %}
+                            <a href="/static/downloads/encodes/{{ encode_filename }}">{{ encode_filename }}</a>
+                        </div>
+                        {% else %}
+                        <div>Encode Status: <span class="red">not encoded</span></div>
+                        {% endif %}
+                        {% if cropped(portionurl.id) %}
+                        <div>
+                            <span>Crop Status:</span>
+                            <span class="green">cropped</span>
+                            {% set crop_filename = portionurl_id_to_filename(portionurl.id) %}
+                            <a href="/static/downloads/crops/{{ crop_filename }}">{{ crop_filename }}</a>
+                        </div>
+                        {% elif in_crop_queue(portionurl.id) %}
+                        <div>Crop Status: <span class="yellow">in crop queue</span></div>
+                        {% else %}
+                        <div>
+                            <span>Crop Status: </span>
+                            <span class="red">not cropped</span>
+                            <a href="{{ url_for('select_rectangle', portionurl_id=portionurl.id) }}">Select Crop Rectangle</a>
+                        </div>
+                        {% endif %}
+                        {#
                         <div>
                             {{ portionurl_id_to_docker_command(portionurl.id) }}
                         </div>
+                        #}
                         {% elif partially_downloaded(portionurl.id) %}
                         <div>Status: <span class="yellow">downloading ({{ portionurl.id }})</span></div>
                         {% else %}
                         <div>Status: <span class="red">pending ({{ portionurl.id }})</span></div>
                         {% endif %}
-
-                        <div>
-                            {% if portionurl_downloaded(portionurl) %}
-                            <a href="{{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}">
-                                {{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}
-                            </a>
-                            {% else %}
-                            <span class="gray">{{ url_for('static', filename='downloads/' + str(portionurl.id) + '.mp4') }}</span>
-                            {% endif %}
-                        </div>
-
                         <div>
                             <a href="{{ portionurl.url }}?t={{ D['offset'] | hhmmss }}">{{ portionurl.url }}?t={{ D['offset'] | hhmmss }}</a>
                         </div>
@@ -957,7 +972,8 @@ def downloads_sequence(sequence_id):
             <div><a href="{{ url_for('view_portions', id=sequence['id']) }}">View Portions of {{ sequence['name'] }}</a></div>
         </div>
     </main>
-    {% endblock %}""", sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded, worker_table=worker_table, downloaded=downloaded, partially_downloaded=partially_downloaded, portionurl_id_to_docker_command=portionurl_id_to_docker_command)
+    {% endblock %}
+    """, sequence=sequence, format_portionurl_for_download=format_portionurl_for_download, str=str, portionurl_downloaded=portionurl_downloaded, worker_table=worker_table, downloaded=downloaded, partially_downloaded=partially_downloaded, portionurl_id_to_docker_command=portionurl_id_to_docker_command, encoded=encoded, cropped=cropped, in_crop_queue=in_crop_queue, portionurl_id_to_filename=portionurl_id_to_filename)
 
 
 @app.route("/get_synced_videos_html/<video_id>/<offset>")
@@ -1462,6 +1478,23 @@ def history():
     </main>
     {% endblock %}""", results=results, count=count, limit=limit)
 
+
+@app.route("/add_to_crop_queue", methods=["POST"])
+def add_to_crop_queue():
+    # CREATE TABLE IF NOT EXISTS queue_crop (id INTEGER PRIMARY KEY AUTOINCREMENT, portionurl_id INTEGER NOT NULL UNIQUE, x INTEGER NOT NULL, y INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, FOREIGN KEY (portionurl_id) REFERENCES portionurls (id) ON DELETE CASCADE) STRICT;
+    portionurl_id = request.form.get("portionurl_id")
+    x = request.form.get("x")
+    y = request.form.get("y")
+    width = request.form.get("width")
+    height = request.form.get("height")
+    cursor = connection.cursor()
+    cursor.execute("INSERT INTO queue_crop (portionurl_id, x, y, width, height) VALUES (?, ?, ?, ?, ?)", (portionurl_id, x, y, width, height))
+    connection.commit()
+    cursor.execute("SELECT portion_id FROM portionurls WHERE id = ?", (portionurl_id,))
+    portion_id = cursor.fetchone()[0]
+    cursor.execute("SELECT sequence_id FROM portions WHERE id = ?", (portion_id,))
+    sequence_id = cursor.fetchone()[0]
+    return redirect(url_for("downloads_sequence", sequence_id=sequence_id))
         
 @app.route('/select_rectangle/<int:portionurl_id>')
 def select_rectangle(portionurl_id):
@@ -1503,8 +1536,6 @@ def settings():
         </div>
     </main>
     {% endblock %}""", session=session, removed_games=removed_games)
-
-
 
 @app.route("/")
 def home():

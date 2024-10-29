@@ -2,10 +2,7 @@
 import os
 import sys
 import json
-
-def pathjoin(frame, relpath):
-    frame_directory = os.path.dirname(frame.f_code.co_filename)
-    return os.path.realpath(os.path.join(frame_directory, relpath))
+from waivek.reltools import pathjoin
 
 def usable(json_file_path):
     """

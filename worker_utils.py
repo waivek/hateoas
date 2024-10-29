@@ -1,6 +1,12 @@
 import sys
-from waivek import rel2abs
+from waivek import Connection, rel2abs
 import os.path
+
+from Types import Portion, PortionUrl
+from portionurl_to_download_path import downloads_folder
+
+connection = Connection("data/main.db")
+videos_connection = Connection("data/videos.db")
 
 def convert(dt, tz):
     import pytz
@@ -10,7 +16,9 @@ def log(message: str, *args):
     from waivek import Code
     import os
     from datetime import datetime
-    dt = convert(datetime.now(), "UTC")
+    import tzlocal
+    # dt = convert(datetime.now(), tzlocal.get_localzone())
+    dt = datetime.now(tzlocal.get_localzone())
     dt = dt.replace(microsecond=0)
     date_string = dt.isoformat()
 
@@ -56,4 +64,42 @@ def is_chat_downloaded(video_id):
     json_path = os.path.join(chat_folder, f"{video_id}.json.gz")
     return os.path.exists(json_path)
 
-log("Hello World!")
+def get_encodes_folder():
+    return rel2abs("static/downloads/encodes")
+
+def get_crops_folder():
+    return rel2abs("static/downloads/crops")
+
+def get_chapters_folder():
+    return rel2abs("static/downloads/chapters")
+
+def get_download_filename(portionurl: PortionUrl, portion: Portion, video: dict) -> str:
+    from slugify import slugify
+    from waivek import Timestamp
+    order = portion.order
+    order_padded = str(order).zfill(2)
+    user_name = video["user_name"]
+    title = portion.title
+    title_slug = slugify(title, separator="_")
+    video_id = video["id"]
+    offset = portion.epoch - video["created_at_epoch"]
+    offset_hhmmss = Timestamp(offset).hh_mm_ss
+    return ".".join([order_padded, title_slug, user_name, video_id, offset_hhmmss, "mp4"])
+
+def portionurl_id_to_filename(portionurl_id):
+    # portionurl_id_to_filename {{{
+    cursor = connection.execute("SELECT * FROM portionurls WHERE id = ?;", (portionurl_id,))
+    portionurl = PortionUrl(*cursor.fetchone())
+    cursor = connection.execute("SELECT * FROM portions WHERE id = ?;", (portionurl.portion_id,))
+    portion = Portion(*cursor.fetchone())
+    video_id = portionurl.url.replace("https://www.youtube.com/watch?v=", "").replace("https://www.twitch.tv/videos/", "")
+    cursor = videos_connection.execute("SELECT * FROM videos WHERE id = ?;", (video_id,))
+    video_dict = dict(cursor.fetchone())
+    filename = get_download_filename(portionurl, portion, video_dict)
+    return filename
+    # }}}
+
+if __name__ == "__main__":
+    log("Hello World! (sample log via worker_utils.log function)")
+
+# run.vim: term python %

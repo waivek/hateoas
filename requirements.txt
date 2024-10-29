@@ -32,3 +32,6 @@ diskcache
 
 # pov_isolation.py
 opencv-python
+
+# for url to domain conversion for get_gateway
+furl

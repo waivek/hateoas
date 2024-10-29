@@ -83,17 +83,17 @@ a { cursor: pointer; }
                             <input type="text" name="video_id" value="{{ video['id'] }}" readonly>
                         </div>
                     </div>
-                    <input type="text" name="title" placeholder="title">
+                    <input type="text" name="title" placeholder="title" required>
                     <div class="wide">
                         <div class="tall">
-                            <input type="text" name="start" placeholder="start">
+                            <input type="number" name="start" placeholder="start">
                             <div>
                                 <button type="button" onclick="set_start()">Set Start</button>
                                 <button type="button" onclick="jump_to_start()">Jump to Start</button>
                             </div>
                         </div>
                         <div class="tall">
-                            <input type="text" name="end" placeholder="end">
+                            <input type="number" name="end" placeholder="end">
                             <div>
                                 <button type="button" onclick="set_end()">Set End</button>
                                 <button type="button" onclick="jump_to_end()">Jump to End</button>
@@ -428,4 +428,6 @@ a { cursor: pointer; }
 
     });
 </script>
+
 {% endblock %}
+
