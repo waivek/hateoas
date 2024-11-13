@@ -49,6 +49,7 @@ def jobs_oneliner(job):
         ended_at_pair = [ f"[bright_black][{timeago_string}[/]",  f"[bright_black]({date_string})][/]" ]
 
         return [
+        job_id,
         name,
         pid,
         exit_code,

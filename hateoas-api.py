@@ -1059,7 +1059,7 @@ def sync_video_to_video(clip_id=None):
 
     synced_videos_html = get_synced_videos_html(video_id, 0)
 
-    graph_payload['chapters'] = chapters(video_id)
+    # graph_payload['chapters'] = chapters(video_id)
 
     return render_template("sync_video_to_video.html", video=video, offsets=offsets, graph_payload=graph_payload, video_id_in_chat_download_queue=video_id_in_chat_download_queue, synced_videos_html=synced_videos_html, sequence_id=sequence_id, clip=clip)
 

@@ -21,16 +21,19 @@ worker_connection = Connection(worker_db_path)
 def worker_oneliner(worker):
     filename = worker["filename"].replace(os.path.expanduser("~"), "~")
     if not psutil.pid_exists(worker["pid"]):
-        prefix = "[red bold]DEAD [/]"
+        prefix = "[red bold]DEAD[/]"
     else:
-        prefix = "[green bold]ALIVE[/]"
+        process = psutil.Process(worker["pid"])
+        if process.status() == "stopped":
+            prefix = "[red bold]SUSPENDED[/]"
+        else:
+            prefix = "[green bold]ALIVE[/]"
     date = datetime.fromtimestamp(int(worker["started_at"]), get_localzone())
     date = "{timeago_string} ({date_string})".format(
             date_string=date.strftime("%I:%M%p %b %e %z"),
             timeago_string=timeago.format(date, datetime.now(get_localzone()))
             )
     return [ prefix, f"[magenta bold]{worker['pid']}[/]", f"{filename}", f"[bright_black][{date}][/]"]
-    # return prefix + f"[magenta bold]{worker['pid']}[/] {filename} [bright_black][{date}][/]"
 
 def main():
     worker_init()

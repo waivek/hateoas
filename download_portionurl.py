@@ -12,7 +12,7 @@ import yt_dlp
 import subprocess
 import shlex
 import pathlib
-from bat import bat
+from waivek import bat
 from modify_line_ffmpeg import modify_line_ffmpeg
 
 connection = Connection("data/main.db")

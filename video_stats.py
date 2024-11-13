@@ -82,9 +82,7 @@ def stats(video_id):
     }
 
     write(payload, json_path)
-    ic(json_path)
     table = read(json_path)
-    ic(table)
     return table
 
 def main():

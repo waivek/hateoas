@@ -48,3 +48,4 @@ def job_end(job_id, exit_code):
     global jobs_connection
     with jobs_connection:
         jobs_connection.execute("UPDATE jobs SET exit_code = ?, ended_at = ? WHERE job_id = ?;", (exit_code, int(time.time()), job_id))
+
