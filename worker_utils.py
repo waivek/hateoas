@@ -1,3 +1,4 @@
+import gzip
 import sys
 from waivek import Connection, rel2abs
 import os.path
@@ -59,10 +60,30 @@ def has_chat_part_file(video_id):
     json_partial_path = os.path.join(chat_folder, f"{video_id}.json.part")
     return os.path.exists(json_partial_path)
 
+def is_gzip_truncated(filepath):
+    # is_gzip_truncated {{{
+    """
+    Check if a gzip file is currently truncated.
+    Returns True if truncated, False if complete.
+    """
+    try:
+        with gzip.open(filepath, 'rb') as f:
+            # Try to read the last few KB to check end-of-stream marker
+            f.seek(-8192, 2)  # Seek from end
+            f.read()
+        return False
+    except (EOFError, gzip.BadGzipFile):
+        return True
+    # }}}
+
 def is_chat_downloaded(video_id):
     chat_folder = get_chat_downloads_folder()
     json_path = os.path.join(chat_folder, f"{video_id}.json.gz")
-    return os.path.exists(json_path)
+    if not os.path.exists(json_path):
+        return False
+    if is_gzip_truncated(json_path):
+        return False
+    return True
 
 def get_encodes_folder():
     return rel2abs("static/downloads/encodes")

@@ -86,3 +86,6 @@ if __name__ == "__main__":
     tuple_data = [(d["name"], d["age"]) for d in data]
     print_rich_tuple_rows(tuple_data)
     print_rich_dict_rows(data)
+
+    tuple_data_with_empty_column = [ (1, 2), (3, None) ]
+    print_rich_tuple_rows(tuple_data_with_empty_column)

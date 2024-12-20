@@ -32,7 +32,7 @@ def worker_single(get_task_id_func: Callable[[], T], task_func: Callable[[T], in
     worker_init()
     jobs_db_init()
     worker_start(caller_path, os.getpid())
-    print(f"[START] Worker: {task_func.__name__}", flush=True)
+    print(f"[BOOT] Worker: {task_func.__name__}", flush=True)
     while True:
         if task_id := get_task_id_func():
             print("JOB: task_id=%s" % task_id, flush=True)

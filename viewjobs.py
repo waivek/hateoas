@@ -48,7 +48,7 @@ def jobs_oneliner(job):
         date_string = ended_at.strftime("%I:%M%p %b %d %z")
         ended_at_pair = [ f"[bright_black][{timeago_string}[/]",  f"[bright_black]({date_string})][/]" ]
 
-        return [
+    return [
         job_id,
         name,
         pid,
