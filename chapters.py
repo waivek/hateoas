@@ -4,7 +4,7 @@ import json
 import diskcache
 from waivek import ic, rel2abs, read, write
 from get_gateway import get_anonymous_session
-from jsonfile import usable
+from box import usable
 from worker_utils import get_chapters_folder
 
 def query_video_info(video_ids):

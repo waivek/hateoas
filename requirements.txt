@@ -1,6 +1,6 @@
 # see ./requirements-large.txt
 
-waivek
+box
 wheel
 pytest
 Flask

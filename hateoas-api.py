@@ -12,7 +12,7 @@ from flask import session
 from flask_cors import CORS
 from dbutils import Connection
 from Types import Sequence, Portion, PortionUrl
-from jsonfile import usable
+from box import usable
 from portionurl_to_download_path import downloaded, partially_downloaded
 from worker_utils import get_download_filename, get_graph_payloads_downloads_folder, get_offsets_downloads_folder, has_chat_part_file, is_chat_downloaded, portionurl_id_to_filename
 from worker_encode_video import encoded
